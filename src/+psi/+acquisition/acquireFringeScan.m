@@ -13,6 +13,7 @@ commandedVoltage = acquisition.startVoltage + ...
     (0:acquisition.imageCount-1) * acquisition.stepVoltage;
 measuredVoltage = zeros(size(commandedVoltage));
 imageFiles = strings(size(commandedVoltage));
+startedAt = datetime('now');
 
 cleanup = onCleanup(@() setZero(piezo)); %#ok<NASGU>
 
@@ -37,7 +38,8 @@ scan.outputDir = string(outputDir);
 scan.imageFiles = imageFiles;
 scan.commandedVoltage = commandedVoltage;
 scan.measuredVoltage = measuredVoltage;
-scan.startTime = datetime('now');
+scan.startedAt = startedAt;
+scan.completedAt = datetime('now');
 scan.acquisition = acquisition;
 
 save(fullfile(outputDir, 'metadata.mat'), 'scan');

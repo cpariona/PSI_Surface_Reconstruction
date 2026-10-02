@@ -7,7 +7,7 @@ function [selectedIndices, fringeFrequency, phaseShifts, row] = ...
 
 firstImage = imread(imageFiles(1));
 if ndims(firstImage) == 3
-    firstImage = rgb2gray(firstImage);
+    firstImage = firstImage(:,:,1);
 end
 Ncol = size(firstImage,2);
 lags = -(Ncol-1):(Ncol-1);
@@ -20,7 +20,7 @@ current = 1;
 for n = 2:4
     baseImage = imread(imageFiles(current));
     if ndims(baseImage) == 3
-        baseImage = rgb2gray(baseImage);
+        baseImage = baseImage(:,:,1);
     end
     baseProfile = double(baseImage(row,:));
     baseProfile = baseProfile - mean(baseProfile);
@@ -28,7 +28,7 @@ for n = 2:4
     for candidate = current+1:numel(imageFiles)
         candidateImage = imread(imageFiles(candidate));
         if ndims(candidateImage) == 3
-            candidateImage = rgb2gray(candidateImage);
+            candidateImage = candidateImage(:,:,1);
         end
         candidateProfile = double(candidateImage(row,:));
         candidateProfile = candidateProfile - mean(candidateProfile);

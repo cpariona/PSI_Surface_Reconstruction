@@ -5,7 +5,7 @@ if ischar(image) || isstring(image)
     image = imread(image);
 end
 if ndims(image) == 3
-    image = rgb2gray(image);
+    image = image(:,:,1);
 end
 
 if nargin < 2 || isempty(row)
@@ -22,5 +22,5 @@ fringeFrequency = abs(index - (N/2 + 1));
 if fringeFrequency == 0
     error('No fringe carrier frequency was detected.');
 end
-period = N / fringeFrequency;
+period = round(N / fringeFrequency);
 end
