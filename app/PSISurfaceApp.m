@@ -7,6 +7,8 @@ cfg = system_config();
 
 piezo = [];
 camera = [];
+previewTimer = [];
+imageHandle = [];
 defaultFolder = fullfile(root, 'data', datestr(now, 'yyyymmdd_HHMMSS'));
 
 fig = uifigure('Name', 'PSI Surface Reconstruction', ...
@@ -20,9 +22,9 @@ main.Padding = [10 10 10 10];
 panel = uipanel(main, 'Title', 'Acquisition');
 panel.Layout.Row = 1;
 panel.Layout.Column = 1;
-controls = uigridlayout(panel, [14 2]);
+controls = uigridlayout(panel, [15 2]);
 controls.ColumnWidth = {'1x', 110};
-controls.RowHeight = {32, 28, 28, 28, 28, 28, 28, 24, 48, 32, 32, 32, 32, '1x'};
+controls.RowHeight = {32, 32, 28, 28, 28, 28, 28, 28, 24, 48, 32, 32, 32, 32, '1x'};
 
 connectButton = uibutton(controls, 'Text', 'Connect', ...
     'ButtonPushedFcn', @connectHardware);
@@ -34,62 +36,67 @@ disconnectButton = uibutton(controls, 'Text', 'Disconnect', ...
 disconnectButton.Layout.Row = 1;
 disconnectButton.Layout.Column = 2;
 
+cameraButton = uibutton(controls, 'Text', 'Camera On', ...
+    'Enable', 'off', 'ButtonPushedFcn', @toggleCameraPreview);
+cameraButton.Layout.Row = 2;
+cameraButton.Layout.Column = [1 2];
+
 label = uilabel(controls, 'Text', 'Start voltage (V)');
-label.Layout.Row = 2; label.Layout.Column = 1;
+label.Layout.Row = 3; label.Layout.Column = 1;
 startVoltage = uieditfield(controls, 'numeric', 'Value', cfg.acquisition.startVoltage);
-startVoltage.Layout.Row = 2; startVoltage.Layout.Column = 2;
+startVoltage.Layout.Row = 3; startVoltage.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Step voltage (V)');
-label.Layout.Row = 3; label.Layout.Column = 1;
+label.Layout.Row = 4; label.Layout.Column = 1;
 stepVoltage = uieditfield(controls, 'numeric', 'Value', cfg.acquisition.stepVoltage);
-stepVoltage.Layout.Row = 3; stepVoltage.Layout.Column = 2;
+stepVoltage.Layout.Row = 4; stepVoltage.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Images');
-label.Layout.Row = 4; label.Layout.Column = 1;
+label.Layout.Row = 5; label.Layout.Column = 1;
 imageCount = uieditfield(controls, 'numeric', 'Value', cfg.acquisition.imageCount);
-imageCount.Layout.Row = 4; imageCount.Layout.Column = 2;
+imageCount.Layout.Row = 5; imageCount.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Settling time (s)');
-label.Layout.Row = 5; label.Layout.Column = 1;
+label.Layout.Row = 6; label.Layout.Column = 1;
 settleTime = uieditfield(controls, 'numeric', 'Value', cfg.acquisition.settleTime);
-settleTime.Layout.Row = 5; settleTime.Layout.Column = 2;
+settleTime.Layout.Row = 6; settleTime.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Phase tolerance (deg)');
-label.Layout.Row = 6; label.Layout.Column = 1;
+label.Layout.Row = 7; label.Layout.Column = 1;
 phaseTolerance = uieditfield(controls, 'numeric', 'Value', cfg.processing.phaseToleranceDeg);
-phaseTolerance.Layout.Row = 6; phaseTolerance.Layout.Column = 2;
+phaseTolerance.Layout.Row = 7; phaseTolerance.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Wavelength (nm)');
-label.Layout.Row = 7; label.Layout.Column = 1;
+label.Layout.Row = 8; label.Layout.Column = 1;
 wavelength = uieditfield(controls, 'numeric', 'Value', cfg.processing.wavelengthNm);
-wavelength.Layout.Row = 7; wavelength.Layout.Column = 2;
+wavelength.Layout.Row = 8; wavelength.Layout.Column = 2;
 
 folderLabel = uilabel(controls, 'Text', 'Acquisition folder');
-folderLabel.Layout.Row = 8;
+folderLabel.Layout.Row = 9;
 folderLabel.Layout.Column = [1 2];
 
 folderField = uieditfield(controls, 'text', 'Value', defaultFolder);
-folderField.Layout.Row = 9;
+folderField.Layout.Row = 10;
 folderField.Layout.Column = [1 2];
 
 browseButton = uibutton(controls, 'Text', 'Select folder', ...
     'ButtonPushedFcn', @browseFolder);
-browseButton.Layout.Row = 10;
+browseButton.Layout.Row = 11;
 browseButton.Layout.Column = [1 2];
 
 acquireButton = uibutton(controls, 'Text', 'Acquire fringe scan', ...
     'Enable', 'off', 'ButtonPushedFcn', @acquireScan);
-acquireButton.Layout.Row = 11;
+acquireButton.Layout.Row = 12;
 acquireButton.Layout.Column = [1 2];
 
 reconstructButton = uibutton(controls, 'Text', 'Reconstruct surface', ...
     'ButtonPushedFcn', @reconstructScan);
-reconstructButton.Layout.Row = 12;
+reconstructButton.Layout.Row = 13;
 reconstructButton.Layout.Column = [1 2];
 
 statusLabel = uilabel(controls, 'Text', 'Disconnected', ...
     'HorizontalAlignment', 'center');
-statusLabel.Layout.Row = 13;
+statusLabel.Layout.Row = 14;
 statusLabel.Layout.Column = [1 2];
 
 views = uitabgroup(main);
@@ -121,14 +128,13 @@ title(surfaceAxes, 'Surface (nm)');
             drawnow;
             piezo = psi.hardware.TPZ001Controller(cfg.hardware);
             camera = psi.hardware.DCC1545MCamera(cfg.hardware);
-
-            frame = camera.capture();
-            imagesc(imageAxes, frame);
-            axis(imageAxes, 'image');
-            colormap(imageAxes, 'gray');
+            previewTimer = timer('ExecutionMode', 'fixedSpacing', ...
+                'Period', 0.1, 'BusyMode', 'drop', ...
+                'TimerFcn', @updateCameraPreview);
 
             connectButton.Enable = 'off';
             disconnectButton.Enable = 'on';
+            cameraButton.Enable = 'on';
             acquireButton.Enable = 'on';
             statusLabel.Text = 'Connected';
         catch ME
@@ -139,6 +145,12 @@ title(surfaceAxes, 'Surface (nm)');
     end
 
     function disconnectHardware(varargin)
+        stopCameraPreview();
+
+        if ~isempty(previewTimer)
+            delete(previewTimer);
+            previewTimer = [];
+        end
         if ~isempty(camera)
             delete(camera);
             camera = [];
@@ -147,10 +159,52 @@ title(surfaceAxes, 'Surface (nm)');
             delete(piezo);
             piezo = [];
         end
+
         connectButton.Enable = 'on';
         disconnectButton.Enable = 'off';
+        cameraButton.Enable = 'off';
         acquireButton.Enable = 'off';
         statusLabel.Text = 'Disconnected';
+    end
+
+    function toggleCameraPreview(~,~)
+        if strcmp(previewTimer.Running, 'off')
+            cameraButton.Text = 'Camera Off';
+            statusLabel.Text = 'Camera preview';
+            start(previewTimer);
+        else
+            stopCameraPreview();
+            statusLabel.Text = 'Connected';
+        end
+    end
+
+    function updateCameraPreview(~,~)
+        try
+            showFrame(camera.capture());
+        catch ME
+            stopCameraPreview();
+            statusLabel.Text = 'Camera preview failed';
+            uialert(fig, ME.message, 'Camera preview');
+        end
+    end
+
+    function stopCameraPreview()
+        if ~isempty(previewTimer) && isvalid(previewTimer) && ...
+                strcmp(previewTimer.Running, 'on')
+            stop(previewTimer);
+        end
+        cameraButton.Text = 'Camera On';
+    end
+
+    function showFrame(frame)
+        if isempty(imageHandle) || ~isgraphics(imageHandle)
+            imageHandle = imagesc(imageAxes, frame);
+            axis(imageAxes, 'image');
+            colormap(imageAxes, 'gray');
+        else
+            imageHandle.CData = frame;
+        end
+        drawnow limitrate;
     end
 
     function browseFolder(~,~)
@@ -165,6 +219,8 @@ title(surfaceAxes, 'Surface (nm)');
     end
 
     function acquireScan(~,~)
+        stopCameraPreview();
+
         acquisition = cfg.acquisition;
         acquisition.startVoltage = startVoltage.Value;
         acquisition.stepVoltage = stepVoltage.Value;
@@ -172,6 +228,7 @@ title(surfaceAxes, 'Surface (nm)');
         acquisition.settleTime = settleTime.Value;
 
         acquireButton.Enable = 'off';
+        cameraButton.Enable = 'off';
         statusLabel.Text = 'Acquiring...';
         drawnow;
 
@@ -183,12 +240,13 @@ title(surfaceAxes, 'Surface (nm)');
             statusLabel.Text = 'Acquisition failed';
             uialert(fig, ME.message, 'Acquisition');
         end
+
         acquireButton.Enable = 'on';
+        cameraButton.Enable = 'on';
     end
 
     function updatePreview(frame, index, count, commanded, measured)
-        imagesc(imageAxes, frame);
-        axis(imageAxes, 'image');
+        showFrame(frame);
         statusLabel.Text = sprintf('%d/%d | %.3f V -> %.3f V', ...
             index, count, commanded, measured);
         drawnow limitrate;
