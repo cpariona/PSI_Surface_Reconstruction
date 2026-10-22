@@ -50,6 +50,36 @@ classdef DCC1545MCamera < handle
             frame = squeeze(data(1,:,:)).';
         end
 
+        function setExposure(obj, exposureMs)
+            status = obj.Camera.Timing.Exposure.Set(double(exposureMs));
+            if ~strcmp(char(status.ToString()), 'SUCCESS')
+                error('Could not set camera exposure.');
+            end
+        end
+
+        function exposureMs = getExposure(obj)
+            [status, exposureMs] = obj.Camera.Timing.Exposure.Get();
+            if ~strcmp(char(status.ToString()), 'SUCCESS')
+                error('Could not read camera exposure.');
+            end
+            exposureMs = double(exposureMs);
+        end
+
+        function setGain(obj, gainPercent)
+            status = obj.Camera.Gain.Hardware.Scaled.SetMaster(int32(gainPercent));
+            if ~strcmp(char(status.ToString()), 'SUCCESS')
+                error('Could not set camera gain.');
+            end
+        end
+
+        function gainPercent = getGain(obj)
+            [status, gainPercent] = obj.Camera.Gain.Hardware.Scaled.GetMaster();
+            if ~strcmp(char(status.ToString()), 'SUCCESS')
+                error('Could not read camera gain.');
+            end
+            gainPercent = double(gainPercent);
+        end
+
         function disconnect(obj)
             if isempty(obj.Camera)
                 return
