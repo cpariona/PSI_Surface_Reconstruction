@@ -9,6 +9,9 @@ piezo = [];
 camera = [];
 previewTimer = [];
 imageHandle = [];
+histHandle = [];
+crosshairX = [];
+crosshairY = [];
 defaultFolder = fullfile(root, 'data', datestr(now, 'yyyymmdd_HHMMSS'));
 
 fig = uifigure('Name', 'PSI Surface Reconstruction', ...
@@ -16,15 +19,16 @@ fig = uifigure('Name', 'PSI Surface Reconstruction', ...
 fig.CloseRequestFcn = @closeApp;
 
 main = uigridlayout(fig, [1 2]);
-main.ColumnWidth = {300, '1x'};
+main.ColumnWidth = {320, '1x'};
 main.Padding = [10 10 10 10];
 
 panel = uipanel(main, 'Title', 'Acquisition');
 panel.Layout.Row = 1;
 panel.Layout.Column = 1;
-controls = uigridlayout(panel, [15 2]);
-controls.ColumnWidth = {'1x', 110};
-controls.RowHeight = {32, 32, 28, 28, 28, 28, 28, 28, 24, 48, 32, 32, 32, 32, '1x'};
+controls = uigridlayout(panel, [20 2]);
+controls.ColumnWidth = {'1x', 120};
+controls.RowHeight = {32, 32, 28, 28, 32, 28, 28, 28, 28, 28, 28, 24, ...
+    48, 32, 32, 32, 32, 32, 32, '1x'};
 
 connectButton = uibutton(controls, 'Text', 'Connect', ...
     'ButtonPushedFcn', @connectHardware);
@@ -41,62 +45,83 @@ cameraButton = uibutton(controls, 'Text', 'Camera On', ...
 cameraButton.Layout.Row = 2;
 cameraButton.Layout.Column = [1 2];
 
-label = uilabel(controls, 'Text', 'Start voltage (V)');
+label = uilabel(controls, 'Text', 'Exposure (ms)');
 label.Layout.Row = 3; label.Layout.Column = 1;
+exposureField = uieditfield(controls, 'numeric', 'Enable', 'off');
+exposureField.Layout.Row = 3; exposureField.Layout.Column = 2;
+
+label = uilabel(controls, 'Text', 'Gain (%)');
+label.Layout.Row = 4; label.Layout.Column = 1;
+gainField = uieditfield(controls, 'numeric', 'Limits', [0 100], ...
+    'Enable', 'off');
+gainField.Layout.Row = 4; gainField.Layout.Column = 2;
+
+applyCameraButton = uibutton(controls, 'Text', 'Apply camera settings', ...
+    'Enable', 'off', 'ButtonPushedFcn', @applyCameraSettings);
+applyCameraButton.Layout.Row = 5;
+applyCameraButton.Layout.Column = [1 2];
+
+crosshairCheck = uicheckbox(controls, 'Text', 'Center crosshair', ...
+    'Value', true, 'ValueChangedFcn', @updateCrosshair);
+crosshairCheck.Layout.Row = 6;
+crosshairCheck.Layout.Column = [1 2];
+
+label = uilabel(controls, 'Text', 'Start voltage (V)');
+label.Layout.Row = 7; label.Layout.Column = 1;
 startVoltage = uieditfield(controls, 'numeric', 'Value', cfg.acquisition.startVoltage);
-startVoltage.Layout.Row = 3; startVoltage.Layout.Column = 2;
+startVoltage.Layout.Row = 7; startVoltage.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Step voltage (V)');
-label.Layout.Row = 4; label.Layout.Column = 1;
+label.Layout.Row = 8; label.Layout.Column = 1;
 stepVoltage = uieditfield(controls, 'numeric', 'Value', cfg.acquisition.stepVoltage);
-stepVoltage.Layout.Row = 4; stepVoltage.Layout.Column = 2;
+stepVoltage.Layout.Row = 8; stepVoltage.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Images');
-label.Layout.Row = 5; label.Layout.Column = 1;
+label.Layout.Row = 9; label.Layout.Column = 1;
 imageCount = uieditfield(controls, 'numeric', 'Value', cfg.acquisition.imageCount);
-imageCount.Layout.Row = 5; imageCount.Layout.Column = 2;
+imageCount.Layout.Row = 9; imageCount.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Settling time (s)');
-label.Layout.Row = 6; label.Layout.Column = 1;
+label.Layout.Row = 10; label.Layout.Column = 1;
 settleTime = uieditfield(controls, 'numeric', 'Value', cfg.acquisition.settleTime);
-settleTime.Layout.Row = 6; settleTime.Layout.Column = 2;
+settleTime.Layout.Row = 10; settleTime.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Phase tolerance (deg)');
-label.Layout.Row = 7; label.Layout.Column = 1;
+label.Layout.Row = 11; label.Layout.Column = 1;
 phaseTolerance = uieditfield(controls, 'numeric', 'Value', cfg.processing.phaseToleranceDeg);
-phaseTolerance.Layout.Row = 7; phaseTolerance.Layout.Column = 2;
+phaseTolerance.Layout.Row = 11; phaseTolerance.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Wavelength (nm)');
-label.Layout.Row = 8; label.Layout.Column = 1;
+label.Layout.Row = 12; label.Layout.Column = 1;
 wavelength = uieditfield(controls, 'numeric', 'Value', cfg.processing.wavelengthNm);
-wavelength.Layout.Row = 8; wavelength.Layout.Column = 2;
+wavelength.Layout.Row = 12; wavelength.Layout.Column = 2;
 
 folderLabel = uilabel(controls, 'Text', 'Acquisition folder');
-folderLabel.Layout.Row = 9;
+folderLabel.Layout.Row = 13;
 folderLabel.Layout.Column = [1 2];
 
 folderField = uieditfield(controls, 'text', 'Value', defaultFolder);
-folderField.Layout.Row = 10;
+folderField.Layout.Row = 14;
 folderField.Layout.Column = [1 2];
 
 browseButton = uibutton(controls, 'Text', 'Select folder', ...
     'ButtonPushedFcn', @browseFolder);
-browseButton.Layout.Row = 11;
+browseButton.Layout.Row = 15;
 browseButton.Layout.Column = [1 2];
 
 acquireButton = uibutton(controls, 'Text', 'Acquire fringe scan', ...
     'Enable', 'off', 'ButtonPushedFcn', @acquireScan);
-acquireButton.Layout.Row = 12;
+acquireButton.Layout.Row = 16;
 acquireButton.Layout.Column = [1 2];
 
 reconstructButton = uibutton(controls, 'Text', 'Reconstruct surface', ...
     'ButtonPushedFcn', @reconstructScan);
-reconstructButton.Layout.Row = 13;
+reconstructButton.Layout.Row = 17;
 reconstructButton.Layout.Column = [1 2];
 
 statusLabel = uilabel(controls, 'Text', 'Disconnected', ...
     'HorizontalAlignment', 'center');
-statusLabel.Layout.Row = 14;
+statusLabel.Layout.Row = 18;
 statusLabel.Layout.Column = [1 2];
 
 views = uitabgroup(main);
@@ -109,6 +134,18 @@ imageAxes = uiaxes(imageGrid);
 title(imageAxes, 'Camera image');
 axis(imageAxes, 'image');
 colormap(imageAxes, 'gray');
+
+intensityTab = uitab(views, 'Title', 'Intensity');
+intensityGrid = uigridlayout(intensityTab, [2 1]);
+intensityGrid.RowHeight = {'1x', 42};
+histAxes = uiaxes(intensityGrid);
+title(histAxes, '8-bit intensity histogram');
+xlabel(histAxes, 'Gray level');
+ylabel(histAxes, 'Pixels');
+xlim(histAxes, [0 255]);
+intensityLabel = uilabel(intensityGrid, ...
+    'Text', 'Mean: -   Std: -   Min: -   Max: -   Saturated: -', ...
+    'HorizontalAlignment', 'center');
 
 phaseTab = uitab(views, 'Title', 'Wrapped phase');
 phaseGrid = uigridlayout(phaseTab, [1 1]);
@@ -132,9 +169,15 @@ title(surfaceAxes, 'Surface (nm)');
                 'Period', 0.1, 'BusyMode', 'drop', ...
                 'TimerFcn', @updateCameraPreview);
 
+            exposureField.Value = camera.getExposure();
+            gainField.Value = camera.getGain();
+
             connectButton.Enable = 'off';
             disconnectButton.Enable = 'on';
             cameraButton.Enable = 'on';
+            exposureField.Enable = 'on';
+            gainField.Enable = 'on';
+            applyCameraButton.Enable = 'on';
             acquireButton.Enable = 'on';
             statusLabel.Text = 'Connected';
         catch ME
@@ -163,6 +206,9 @@ title(surfaceAxes, 'Surface (nm)');
         connectButton.Enable = 'on';
         disconnectButton.Enable = 'off';
         cameraButton.Enable = 'off';
+        exposureField.Enable = 'off';
+        gainField.Enable = 'off';
+        applyCameraButton.Enable = 'off';
         acquireButton.Enable = 'off';
         statusLabel.Text = 'Disconnected';
     end
@@ -175,6 +221,19 @@ title(surfaceAxes, 'Surface (nm)');
         else
             stopCameraPreview();
             statusLabel.Text = 'Connected';
+        end
+    end
+
+    function applyCameraSettings(~,~)
+        try
+            camera.setExposure(exposureField.Value);
+            camera.setGain(gainField.Value);
+            exposureField.Value = camera.getExposure();
+            gainField.Value = camera.getGain();
+            statusLabel.Text = sprintf('Camera: %.3f ms | gain %.0f%%', ...
+                exposureField.Value, gainField.Value);
+        catch ME
+            uialert(fig, ME.message, 'Camera settings');
         end
     end
 
@@ -204,7 +263,51 @@ title(surfaceAxes, 'Surface (nm)');
         else
             imageHandle.CData = frame;
         end
+
+        updateCrosshair();
+        updateIntensity(frame);
         drawnow limitrate;
+    end
+
+    function updateCrosshair(varargin)
+        if crosshairCheck.Value && ~isempty(imageHandle) && isgraphics(imageHandle)
+            frame = imageHandle.CData;
+            x = (size(frame,2) + 1) / 2;
+            y = (size(frame,1) + 1) / 2;
+            if isempty(crosshairX) || ~isgraphics(crosshairX)
+                crosshairX = xline(imageAxes, x, '--');
+                crosshairY = yline(imageAxes, y, '--');
+            else
+                crosshairX.Value = x;
+                crosshairY.Value = y;
+            end
+        else
+            if ~isempty(crosshairX) && isgraphics(crosshairX)
+                delete(crosshairX);
+            end
+            if ~isempty(crosshairY) && isgraphics(crosshairY)
+                delete(crosshairY);
+            end
+            crosshairX = [];
+            crosshairY = [];
+        end
+    end
+
+    function updateIntensity(frame)
+        values = double(frame(:));
+        counts = histcounts(values, -0.5:1:255.5);
+
+        if isempty(histHandle) || ~isgraphics(histHandle)
+            histHandle = plot(histAxes, 0:255, counts);
+            xlim(histAxes, [0 255]);
+        else
+            histHandle.YData = counts;
+        end
+
+        saturated = 100 * nnz(frame == 255) / numel(frame);
+        intensityLabel.Text = sprintf( ...
+            'Mean: %.1f   Std: %.1f   Min: %d   Max: %d   Saturated: %.3f%%', ...
+            mean(values), std(values), min(frame(:)), max(frame(:)), saturated);
     end
 
     function browseFolder(~,~)
@@ -229,6 +332,9 @@ title(surfaceAxes, 'Surface (nm)');
 
         acquireButton.Enable = 'off';
         cameraButton.Enable = 'off';
+        exposureField.Enable = 'off';
+        gainField.Enable = 'off';
+        applyCameraButton.Enable = 'off';
         statusLabel.Text = 'Acquiring...';
         drawnow;
 
@@ -243,6 +349,9 @@ title(surfaceAxes, 'Surface (nm)');
 
         acquireButton.Enable = 'on';
         cameraButton.Enable = 'on';
+        exposureField.Enable = 'on';
+        gainField.Enable = 'on';
+        applyCameraButton.Enable = 'on';
     end
 
     function updatePreview(frame, index, count, commanded, measured)
