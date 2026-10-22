@@ -154,10 +154,16 @@ title(phaseAxes, 'Wrapped phase');
 axis(phaseAxes, 'image');
 colormap(phaseAxes, 'gray');
 
+qualityTab = uitab(views, 'Title', 'Phase quality');
+qualityGrid = uigridlayout(qualityTab, [1 1]);
+qualityAxes = uiaxes(qualityGrid);
+title(qualityAxes, 'PSI phase quality');
+axis(qualityAxes, 'image');
+
 surfaceTab = uitab(views, 'Title', 'Surface');
 surfaceGrid = uigridlayout(surfaceTab, [1 1]);
 surfaceAxes = uiaxes(surfaceGrid);
-title(surfaceAxes, 'Surface (nm)');
+title(surfaceAxes, 'Surface v2 (nm)');
 
     function connectHardware(~,~)
         try
@@ -373,9 +379,14 @@ title(surfaceAxes, 'Surface (nm)');
             result = psi.processing.reconstructSurface( ...
                 folderField.Value, processing);
 
-            imagesc(phaseAxes, result.wrappedPhase);
+            imagesc(phaseAxes, result.filteredWrappedPhase);
             axis(phaseAxes, 'image');
             colormap(phaseAxes, 'gray');
+            title(phaseAxes, 'Filtered wrapped phase');
+
+            imagesc(qualityAxes, result.qualityMap, [0 1]);
+            axis(qualityAxes, 'image');
+            colorbar(qualityAxes);
 
             surf(surfaceAxes, result.surfaceNm, 'EdgeColor', 'none');
             axis(surfaceAxes, 'tight');
@@ -385,8 +396,10 @@ title(surfaceAxes, 'Surface (nm)');
             zlabel(surfaceAxes, 'height (nm)');
             colorbar(surfaceAxes);
 
-            statusLabel.Text = sprintf('Reconstruction complete | frames %s', ...
-                mat2str(result.selectedImageNumbers));
+            validPercent = 100 * nnz(result.validMask) / numel(result.validMask);
+            statusLabel.Text = sprintf( ...
+                'Reconstruction v2 complete | frames %s | valid %.1f%%', ...
+                mat2str(result.selectedImageNumbers), validPercent);
         catch ME
             statusLabel.Text = 'Reconstruction failed';
             uialert(fig, ME.message, 'Reconstruction');
