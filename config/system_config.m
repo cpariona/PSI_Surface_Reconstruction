@@ -16,4 +16,7 @@ cfg.processing.phaseToleranceDeg = 5;
 cfg.processing.wavelengthNm = 660;
 cfg.processing.analysisRow = [];
 cfg.processing.referenceRow = [];
+
+cfg.processing.filterRadius = 2;
+cfg.processing.qualityThreshold = 0.10;
 end
