@@ -15,22 +15,48 @@ imageFiles = string(fullfile({files.folder}, {files.name}));
     psi.processing.selectPhaseFrames(imageFiles, processing.analysisRow, ...
     processing.phaseStepDeg, processing.phaseToleranceDeg);
 
-wrappedPhase = psi.processing.computePSI(imageFiles, selectedIndices);
-unwrappedPhase = psi.processing.unwrapPhase(wrappedPhase);
-correctedPhase = psi.processing.removeCarrier(unwrappedPhase, ...
+[wrappedPhase, qualityMap, modulation] = ...
+    psi.processing.computePSI(imageFiles, selectedIndices);
+
+% Legacy reconstruction retained for direct comparison.
+legacyUnwrappedPhase = psi.processing.unwrapPhase(wrappedPhase);
+legacyCorrectedPhase = psi.processing.removeCarrier(legacyUnwrappedPhase, ...
     fringeFrequency, processing.referenceRow);
+legacySurfaceNm = psi.processing.phaseToSurface(legacyCorrectedPhase, ...
+    processing.wavelengthNm);
+
+% V2 reconstruction.
+filteredWrappedPhase = psi.processing.filterWrappedPhase( ...
+    wrappedPhase, qualityMap, processing.filterRadius);
+unwrappedPhase = psi.processing.unwrapPhaseQuality( ...
+    filteredWrappedPhase, qualityMap, processing.qualityThreshold);
+[correctedPhase, tiltPlane, tiltCoefficients, validMask] = ...
+    psi.processing.removeTiltPlane(unwrappedPhase, qualityMap, ...
+    processing.qualityThreshold);
 surfaceNm = psi.processing.phaseToSurface(correctedPhase, ...
     processing.wavelengthNm);
 
 result.folder = string(folder);
+result.version = "v2";
 result.selectedImageNumbers = selectedIndices - 1;
 result.phaseShiftsDeg = phaseShifts;
 result.fringeFrequency = fringeFrequency;
 result.analysisRow = analysisRow;
+
 result.wrappedPhase = wrappedPhase;
+result.qualityMap = qualityMap;
+result.modulation = modulation;
+result.filteredWrappedPhase = filteredWrappedPhase;
 result.unwrappedPhase = unwrappedPhase;
+result.tiltPlane = tiltPlane;
+result.tiltCoefficients = tiltCoefficients;
+result.validMask = validMask;
 result.correctedPhase = correctedPhase;
 result.surfaceNm = surfaceNm;
+
+result.legacyUnwrappedPhase = legacyUnwrappedPhase;
+result.legacyCorrectedPhase = legacyCorrectedPhase;
+result.legacySurfaceNm = legacySurfaceNm;
 result.processing = processing;
 
 save(fullfile(folder, 'reconstruction.mat'), 'result');
