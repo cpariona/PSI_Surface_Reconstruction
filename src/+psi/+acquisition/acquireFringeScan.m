@@ -15,6 +15,9 @@ measuredVoltage = zeros(size(commandedVoltage));
 imageFiles = strings(size(commandedVoltage));
 startedAt = datetime('now');
 
+cameraSettings.exposureMs = camera.getExposure();
+cameraSettings.gainPercent = camera.getGain();
+
 cleanup = onCleanup(@() setZero(piezo)); %#ok<NASGU>
 
 for k = 1:numel(commandedVoltage)
@@ -41,6 +44,7 @@ scan.measuredVoltage = measuredVoltage;
 scan.startedAt = startedAt;
 scan.completedAt = datetime('now');
 scan.acquisition = acquisition;
+scan.camera = cameraSettings;
 
 save(fullfile(outputDir, 'metadata.mat'), 'scan');
 end
