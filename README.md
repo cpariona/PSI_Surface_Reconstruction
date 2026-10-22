@@ -2,14 +2,16 @@
 
 MATLAB implementation of the phase-shifting interferometry (PSI) system previously split between LabVIEW acquisition and MATLAB processing.
 
-The first version integrates:
+The current version integrates:
 
 - Thorlabs TPZ001 piezo controller through Kinesis .NET.
 - Thorlabs DCC1545M camera through the DCx `uc480DotNet.dll` interface.
+- Live camera preview with exposure, gain, histogram, saturation statistics, and center crosshair.
 - Voltage scan and interferogram acquisition.
 - Automatic selection of four interferograms separated by approximately 90 degrees.
 - Four-step PSI phase reconstruction.
-- Phase unwrapping, carrier removal, and phase-to-surface conversion.
+- PSI v2 stabilization: quality map, circular phase filtering, quality-aware unwrapping, 2-D tilt removal, and phase-to-surface conversion.
+- The legacy reconstruction is retained inside `reconstruction.mat` for comparison.
 - A MATLAB GUI that calls the same backend used by the command-line workflows.
 
 ## Requirements
@@ -36,8 +38,6 @@ The GUI adds `src` and `config` to the MATLAB path automatically.
 
 ## Default acquisition
 
-The initial configuration reproduces the original acquisition convention where possible:
-
 - Start voltage: 0 V
 - Step: 0.1 V
 - Images: 85
@@ -47,7 +47,12 @@ The initial configuration reproduces the original acquisition convention where p
 - Phase-step tolerance: 5 degrees
 - Wavelength: 660 nm
 
-These values are editable in the GUI or in `config/system_config.m`.
+## PSI v2 defaults
+
+- Circular phase-filter radius: 2 pixels
+- Quality threshold: 0.10
+
+These values are in `config/system_config.m`.
 
 ## Command-line workflows
 
