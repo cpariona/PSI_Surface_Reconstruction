@@ -23,6 +23,11 @@ pendingDisconnect = false;
 pendingClose = false;
 lastLoggedCameraErrorCount = 0;
 cameraFault = false;
+lastResult = [];
+tiltROI = [];
+roiSelecting = false;
+roiFirst = [];
+roiRectangle = [];
 defaultFolder = fullfile(root, 'data', datestr(now, 'yyyymmdd_HHMMSS'));
 
 fig = uifigure('Name', 'PSI Surface Reconstruction', ...
@@ -210,10 +215,32 @@ axis(phaseAxes, 'image');
 colormap(phaseAxes, 'gray');
 
 qualityTab = uitab(views, 'Title', 'Phase quality');
-qualityGrid = uigridlayout(qualityTab, [1 1]);
+qualityGrid = uigridlayout(qualityTab, [3 2]);
+qualityGrid.RowHeight = {34, '1x', 30};
+qualityGrid.ColumnWidth = {'1x', '1x'};
+
+selectROIButton = uibutton(qualityGrid, 'Text', 'Select flat reference ROI', ...
+    'Enable', 'off', 'ButtonPushedFcn', @selectTiltROI);
+selectROIButton.Layout.Row = 1;
+selectROIButton.Layout.Column = 1;
+
+fullFieldButton = uibutton(qualityGrid, 'Text', 'Use full field', ...
+    'Enable', 'off', 'ButtonPushedFcn', @resetTiltROI);
+fullFieldButton.Layout.Row = 1;
+fullFieldButton.Layout.Column = 2;
+
 qualityAxes = uiaxes(qualityGrid);
-title(qualityAxes, 'PSI phase quality');
+qualityAxes.Layout.Row = 2;
+qualityAxes.Layout.Column = [1 2];
+qualityAxes.ButtonDownFcn = @tiltROIClick;
+title(qualityAxes, 'Click two opposite corners to define the reference ROI');
 axis(qualityAxes, 'image');
+
+roiLabel = uilabel(qualityGrid, ...
+    'Text', 'Tilt reference: full field (choose a flat ROI for measurements)', ...
+    'HorizontalAlignment', 'center');
+roiLabel.Layout.Row = 3;
+roiLabel.Layout.Column = [1 2];
 
 surfaceTab = uitab(views, 'Title', 'Surface');
 surfaceGrid = uigridlayout(surfaceTab, [1 1]);
@@ -736,38 +763,129 @@ title(surfaceAxes, 'Surface v3 (nm)');
         processing = cfg.processing;
         processing.phaseToleranceDeg = phaseTolerance.Value;
         processing.wavelengthNm = wavelength.Value;
+        processing.tiltROI = tiltROI;
 
+        reconstructButton.Enable = 'off';
+        selectROIButton.Enable = 'off';
+        fullFieldButton.Enable = 'off';
         statusLabel.Text = 'Reconstructing...';
         drawnow;
 
         try
             result = psi.processing.reconstructSurface( ...
                 folderField.Value, processing);
+            lastResult = result;
 
             imagesc(phaseAxes, result.filteredWrappedPhase);
             axis(phaseAxes, 'image');
             colormap(phaseAxes, 'gray');
             title(phaseAxes, 'Filtered wrapped phase');
 
-            imagesc(qualityAxes, result.qualityMap, [0 1]);
-            axis(qualityAxes, 'image');
-            colorbar(qualityAxes);
-
-            surf(surfaceAxes, result.surfaceNm, 'EdgeColor', 'none');
-            axis(surfaceAxes, 'tight');
-            view(surfaceAxes, 3);
-            xlabel(surfaceAxes, 'x (pixel)');
-            ylabel(surfaceAxes, 'y (pixel)');
-            zlabel(surfaceAxes, 'height (nm)');
-            colorbar(surfaceAxes);
+            showQualityAndSurface();
+            selectROIButton.Enable = 'on';
+            fullFieldButton.Enable = 'on';
 
             validPercent = 100 * nnz(result.validMask) / numel(result.validMask);
             statusLabel.Text = sprintf( ...
-                'Reconstruction v3 | %d frames | phase span %.1f deg | valid %.1f%%', ...
-                result.imageCount, result.phaseSpanDeg, validPercent);
+                'Reconstruction v3 | %d frames | valid %.1f%% | spikes %d', ...
+                result.imageCount, validPercent, nnz(result.spikeMask));
         catch ME
             statusLabel.Text = 'Reconstruction failed';
             uialert(fig, ME.message, 'Reconstruction');
+        end
+        reconstructButton.Enable = 'on';
+    end
+
+    function showQualityAndSurface()
+        result = lastResult;
+        cla(qualityAxes);
+        qualityImage = imagesc(qualityAxes, result.qualityMap, [0 1]);
+        qualityImage.ButtonDownFcn = @tiltROIClick;
+        qualityImage.HitTest = 'on';
+        qualityImage.PickableParts = 'all';
+        axis(qualityAxes, 'image');
+        colorbar(qualityAxes);
+
+        if isempty(tiltROI)
+            roiLabel.Text = 'Tilt reference: full field (may remove real shape)';
+        else
+            roiLabel.Text = sprintf( ...
+                'Reference ROI: x %.0f-%.0f, y %.0f-%.0f | %d reliable pixels', ...
+                tiltROI(1), tiltROI(1)+tiltROI(3), ...
+                tiltROI(2), tiltROI(2)+tiltROI(4), ...
+                nnz(result.referenceMask));
+            roiRectangle = rectangle(qualityAxes, 'Position', tiltROI, ...
+                'EdgeColor', [1 0.2 0.1], 'LineWidth', 2, ...
+                'HitTest', 'off', 'PickableParts', 'none');
+        end
+
+        cla(surfaceAxes);
+        surf(surfaceAxes, result.surfaceNm, 'EdgeColor', 'none');
+        axis(surfaceAxes, 'tight');
+        view(surfaceAxes, 3);
+        xlabel(surfaceAxes, 'x (pixel)');
+        ylabel(surfaceAxes, 'y (pixel)');
+        zlabel(surfaceAxes, 'height (nm)');
+        title(surfaceAxes, 'Surface v3 (nm) - unreliable pixels omitted');
+        colorbar(surfaceAxes);
+    end
+
+    function selectTiltROI(~,~)
+        if isempty(lastResult) || isAcquiring
+            return
+        end
+        roiSelecting = true;
+        roiFirst = [];
+        views.SelectedTab = qualityTab;
+        roiLabel.Text = 'ROI: click the first corner on the quality image';
+    end
+
+    function tiltROIClick(~,~)
+        if ~roiSelecting || isempty(lastResult)
+            return
+        end
+
+        point = qualityAxes.CurrentPoint;
+        x = min(max(round(point(1,1)), 1), size(lastResult.qualityMap,2));
+        y = min(max(round(point(1,2)), 1), size(lastResult.qualityMap,1));
+
+        if isempty(roiFirst)
+            roiFirst = [x y];
+            roiLabel.Text = 'ROI: click the opposite corner';
+            return
+        end
+
+        selectedROI = [min(x,roiFirst(1)), min(y,roiFirst(2)), ...
+            abs(x-roiFirst(1)), abs(y-roiFirst(2))];
+        roiSelecting = false;
+        roiFirst = [];
+
+        try
+            newResult = psi.processing.relevelSurface(lastResult, selectedROI);
+            lastResult = newResult;
+            tiltROI = selectedROI;
+            showQualityAndSurface();
+            statusLabel.Text = 'Tilt recalculated from reference ROI';
+        catch ME
+            roiLabel.Text = sprintf('ROI rejected: %s', ME.message);
+            uialert(fig, ME.message, 'Reference ROI');
+        end
+    end
+
+    function resetTiltROI(~,~)
+        if isempty(lastResult) || isAcquiring
+            return
+        end
+        roiSelecting = false;
+        roiFirst = [];
+        try
+            newResult = psi.processing.relevelSurface(lastResult, []);
+            lastResult = newResult;
+            tiltROI = [];
+            showQualityAndSurface();
+            statusLabel.Text = 'Tilt recalculated from full field';
+        catch ME
+            uialert(fig, ME.message, 'Tilt correction');
         end
     end
 
