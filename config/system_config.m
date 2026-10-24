@@ -20,4 +20,6 @@ cfg.processing.referenceRow = [];
 
 cfg.processing.filterRadius = 2;
 cfg.processing.qualityThreshold = 0.10;
+cfg.processing.spikeThresholdRad = pi;
+cfg.processing.tiltROI = []; % [] = all reliable pixels; prefer a flat reference ROI.
 end
