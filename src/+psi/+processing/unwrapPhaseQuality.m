@@ -62,7 +62,7 @@ for j = 1:numel(order)
     end
 end
 
-roots = find(valid & parent == indices(:));
+roots = find(valid(:) & parent == indices(:));
 diagnostics.componentCount = numel(roots);
 [~, largest] = max(componentSize(roots));
 mainRoot = roots(largest);
