@@ -7,6 +7,7 @@ classdef DCC1545MCamera < handle
         Bits
         LastError = ""
         LastErrorTime = []
+        ErrorCount = 0
     end
 
     methods
@@ -69,7 +70,9 @@ classdef DCC1545MCamera < handle
                     frame = squeeze(data(1,:,:)).';
                     return
                 catch ME
-                    obj.rememberError(ME);
+                    if ~startsWith(ME.identifier, 'psi:Camera:')
+                        obj.rememberError(ME);
+                    end
                     if attempt == 1 && strcmp(ME.identifier, 'psi:Camera:Transient')
                         pause(0.1);
                     else
@@ -173,6 +176,7 @@ classdef DCC1545MCamera < handle
         function rememberError(obj, ME)
             obj.LastError = string(ME.message);
             obj.LastErrorTime = datetime('now');
+            obj.ErrorCount = obj.ErrorCount + 1;
         end
     end
 end
