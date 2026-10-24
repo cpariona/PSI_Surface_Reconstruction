@@ -10,7 +10,7 @@ end
 [rows, cols] = size(unwrappedPhase);
 [x, y] = meshgrid(1:cols, 1:rows);
 validMask = isfinite(unwrappedPhase) & isfinite(qualityMap) & ...
-    qualityMap >= threshold;
+    qualityMap > 0 & qualityMap >= threshold;
 
 referenceMask = validMask;
 if ~isempty(roi)
