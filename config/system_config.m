@@ -5,6 +5,7 @@ cfg.hardware.kinesisPath = 'C:\Program Files\Thorlabs\Kinesis';
 cfg.hardware.cameraDll = ['C:\Program Files\Thorlabs\Scientific Imaging\' ...
     'DCx Camera Support\Develop\DotNet\uc480DotNet.dll'];
 cfg.hardware.piezoSerial = '81857565';
+cfg.hardware.actuatorMaxVoltage = []; % Set only when the actuator limit is known.
 
 cfg.acquisition.startVoltage = 0;
 cfg.acquisition.stepVoltage = 0.1;
