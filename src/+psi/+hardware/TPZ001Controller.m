@@ -3,6 +3,7 @@ classdef TPZ001Controller < handle
         Serial
         Device
         MaxVoltage
+        SafeMaxVoltage
         OriginalSource
         OriginalMode
     end
@@ -50,14 +51,22 @@ classdef TPZ001Controller < handle
 
             obj.MaxVoltage = System.Decimal.ToDouble( ...
                 obj.Device.GetMaxOutputVoltage());
+            obj.SafeMaxVoltage = obj.MaxVoltage;
+
+            if isfield(hardwareConfig, 'actuatorMaxVoltage') && ...
+                    ~isempty(hardwareConfig.actuatorMaxVoltage)
+                obj.SafeMaxVoltage = min(obj.MaxVoltage, ...
+                    hardwareConfig.actuatorMaxVoltage);
+            end
 
             obj.setVoltage(0);
             pause(0.1);
         end
 
         function setVoltage(obj, voltage)
-            if voltage < 0 || voltage > obj.MaxVoltage
-                error('Voltage must be between 0 and %.3f V.', obj.MaxVoltage);
+            if voltage < 0 || voltage > obj.SafeMaxVoltage
+                error('Voltage must be between 0 and %.3f V.', ...
+                    obj.SafeMaxVoltage);
             end
             obj.Device.SetOutputVoltage(System.Decimal(voltage));
         end
