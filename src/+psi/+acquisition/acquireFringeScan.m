@@ -5,12 +5,25 @@ if nargin < 5
     frameCallback = [];
 end
 
+commandedVoltage = acquisition.startVoltage + ...
+    (0:acquisition.imageCount-1) * acquisition.stepVoltage;
+
+if isempty(commandedVoltage) || acquisition.imageCount < 1
+    error('Image count must be at least 1.');
+end
+
+requestedMin = min(commandedVoltage);
+requestedMax = max(commandedVoltage);
+if requestedMin < 0 || requestedMax > piezo.SafeMaxVoltage
+    error(['Requested voltage range is %.3f to %.3f V. ' ...
+        'Safe piezo range is 0 to %.3f V. Acquisition was not started.'], ...
+        requestedMin, requestedMax, piezo.SafeMaxVoltage);
+end
+
 if ~isfolder(outputDir)
     mkdir(outputDir);
 end
 
-commandedVoltage = acquisition.startVoltage + ...
-    (0:acquisition.imageCount-1) * acquisition.stepVoltage;
 measuredVoltage = zeros(size(commandedVoltage));
 imageFiles = strings(size(commandedVoltage));
 startedAt = datetime('now');
@@ -45,6 +58,8 @@ scan.startedAt = startedAt;
 scan.completedAt = datetime('now');
 scan.acquisition = acquisition;
 scan.camera = cameraSettings;
+scan.piezoMaxVoltage = piezo.MaxVoltage;
+scan.piezoSafeMaxVoltage = piezo.SafeMaxVoltage;
 
 save(fullfile(outputDir, 'metadata.mat'), 'scan');
 end
