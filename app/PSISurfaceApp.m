@@ -25,9 +25,15 @@ lastLoggedCameraErrorCount = 0;
 cameraFault = false;
 lastResult = [];
 tiltROI = [];
-roiSelecting = false;
-roiFirst = [];
 roiRectangle = [];
+roiClickedListener = [];
+roiMovedListener = [];
+roiPending = false;
+isProcessing = false;
+qualityImageHandle = [];
+rawPhaseImageHandle = [];
+filteredPhaseImageHandle = [];
+maskImageHandle = [];
 defaultFolder = fullfile(root, 'data', datestr(now, 'yyyymmdd_HHMMSS'));
 
 fig = uifigure('Name', 'PSI Surface Reconstruction', ...
@@ -215,25 +221,32 @@ axis(phaseAxes, 'image');
 colormap(phaseAxes, 'gray');
 
 qualityTab = uitab(views, 'Title', 'Phase quality');
-qualityGrid = uigridlayout(qualityTab, [4 4]);
-qualityGrid.RowHeight = {34, 32, '1x', 30};
-qualityGrid.ColumnWidth = {'1x', 95, '1x', 95};
+qualityGrid = uigridlayout(qualityTab, [6 4]);
+qualityGrid.RowHeight = {36, 32, 32, '1x', '1x', 35};
+qualityGrid.ColumnWidth = {'1x', 92, '1x', 92};
 
-selectROIButton = uibutton(qualityGrid, 'Text', 'Select flat reference ROI', ...
+selectROIButton = uibutton(qualityGrid, 'Text', 'Draw reference ROI', ...
     'Enable', 'off', 'ButtonPushedFcn', @selectTiltROI);
 selectROIButton.Layout.Row = 1;
 selectROIButton.Layout.Column = [1 2];
 
-fullFieldButton = uibutton(qualityGrid, 'Text', 'Use full field', ...
+fullFieldButton = uibutton(qualityGrid, 'Text', 'Full field', ...
     'Enable', 'off', 'ButtonPushedFcn', @resetTiltROI);
 fullFieldButton.Layout.Row = 1;
-fullFieldButton.Layout.Column = [3 4];
+fullFieldButton.Layout.Column = 3;
 
-filterLabel = uilabel(qualityGrid, 'Text', 'Filter radius (px)');
+applyProcessingButton = uibutton(qualityGrid, ...
+    'Text', 'Apply processing', 'Enable', 'off', ...
+    'ButtonPushedFcn', @applyProcessing);
+applyProcessingButton.Layout.Row = 1;
+applyProcessingButton.Layout.Column = 4;
+
+filterLabel = uilabel(qualityGrid, 'Text', 'Noise radius (px)');
 filterLabel.Layout.Row = 2;
 filterLabel.Layout.Column = 1;
 filterRadiusField = uieditfield(qualityGrid, 'numeric', ...
-    'Limits', [0 10], 'Value', cfg.processing.filterRadius);
+    'Limits', [0 10], 'Value', cfg.processing.filterRadius, ...
+    'ValueChangedFcn', @onProcessingSettingChanged);
 filterRadiusField.Layout.Row = 2;
 filterRadiusField.Layout.Column = 2;
 
@@ -241,21 +254,53 @@ thresholdLabel = uilabel(qualityGrid, 'Text', 'Quality threshold');
 thresholdLabel.Layout.Row = 2;
 thresholdLabel.Layout.Column = 3;
 qualityThresholdField = uieditfield(qualityGrid, 'numeric', ...
-    'Limits', [0 1], 'Value', cfg.processing.qualityThreshold);
+    'Limits', [0 1], 'Value', cfg.processing.qualityThreshold, ...
+    'ValueChangedFcn', @onProcessingSettingChanged);
 qualityThresholdField.Layout.Row = 2;
 qualityThresholdField.Layout.Column = 4;
 
+spikeLabel = uilabel(qualityGrid, 'Text', 'Spike threshold (rad)');
+spikeLabel.Layout.Row = 3;
+spikeLabel.Layout.Column = 1;
+spikeThresholdField = uieditfield(qualityGrid, 'numeric', ...
+    'Limits', [0.05 6*pi], 'Value', cfg.processing.spikeThresholdRad, ...
+    'ValueChangedFcn', @onProcessingSettingChanged);
+spikeThresholdField.Layout.Row = 3;
+spikeThresholdField.Layout.Column = 2;
+
+processingStateLabel = uilabel(qualityGrid, ...
+    'Text', 'Not processed', 'HorizontalAlignment', 'center');
+processingStateLabel.Layout.Row = 3;
+processingStateLabel.Layout.Column = [3 4];
+
 qualityAxes = uiaxes(qualityGrid);
-qualityAxes.Layout.Row = 3;
-qualityAxes.Layout.Column = [1 4];
-qualityAxes.ButtonDownFcn = @tiltROIClick;
-title(qualityAxes, 'Click two opposite corners to define the reference ROI');
+qualityAxes.Layout.Row = 4;
+qualityAxes.Layout.Column = [1 2];
+title(qualityAxes, 'Phase quality / reference ROI');
 axis(qualityAxes, 'image');
 
+maskAxes = uiaxes(qualityGrid);
+maskAxes.Layout.Row = 4;
+maskAxes.Layout.Column = [3 4];
+title(maskAxes, 'Mask: 0 invalid, 1 valid, 2 spikes');
+axis(maskAxes, 'image');
+
+rawPhaseAxes = uiaxes(qualityGrid);
+rawPhaseAxes.Layout.Row = 5;
+rawPhaseAxes.Layout.Column = [1 2];
+title(rawPhaseAxes, 'Raw wrapped phase');
+axis(rawPhaseAxes, 'image');
+
+filteredPhaseAxes = uiaxes(qualityGrid);
+filteredPhaseAxes.Layout.Row = 5;
+filteredPhaseAxes.Layout.Column = [3 4];
+title(filteredPhaseAxes, 'Filtered wrapped phase');
+axis(filteredPhaseAxes, 'image');
+
 roiLabel = uilabel(qualityGrid, ...
-    'Text', 'Tilt reference: full field (choose a flat ROI for measurements)', ...
+    'Text', 'Draw a flat ROI, adjust it, then double-click inside to apply tilt', ...
     'HorizontalAlignment', 'center');
-roiLabel.Layout.Row = 4;
+roiLabel.Layout.Row = 6;
 roiLabel.Layout.Column = [1 4];
 
 surfaceTab = uitab(views, 'Title', 'Surface');
