@@ -215,23 +215,39 @@ axis(phaseAxes, 'image');
 colormap(phaseAxes, 'gray');
 
 qualityTab = uitab(views, 'Title', 'Phase quality');
-qualityGrid = uigridlayout(qualityTab, [3 2]);
-qualityGrid.RowHeight = {34, '1x', 30};
-qualityGrid.ColumnWidth = {'1x', '1x'};
+qualityGrid = uigridlayout(qualityTab, [4 4]);
+qualityGrid.RowHeight = {34, 32, '1x', 30};
+qualityGrid.ColumnWidth = {'1x', 95, '1x', 95};
 
 selectROIButton = uibutton(qualityGrid, 'Text', 'Select flat reference ROI', ...
     'Enable', 'off', 'ButtonPushedFcn', @selectTiltROI);
 selectROIButton.Layout.Row = 1;
-selectROIButton.Layout.Column = 1;
+selectROIButton.Layout.Column = [1 2];
 
 fullFieldButton = uibutton(qualityGrid, 'Text', 'Use full field', ...
     'Enable', 'off', 'ButtonPushedFcn', @resetTiltROI);
 fullFieldButton.Layout.Row = 1;
-fullFieldButton.Layout.Column = 2;
+fullFieldButton.Layout.Column = [3 4];
+
+filterLabel = uilabel(qualityGrid, 'Text', 'Filter radius (px)');
+filterLabel.Layout.Row = 2;
+filterLabel.Layout.Column = 1;
+filterRadiusField = uieditfield(qualityGrid, 'numeric', ...
+    'Limits', [0 10], 'Value', cfg.processing.filterRadius);
+filterRadiusField.Layout.Row = 2;
+filterRadiusField.Layout.Column = 2;
+
+thresholdLabel = uilabel(qualityGrid, 'Text', 'Quality threshold');
+thresholdLabel.Layout.Row = 2;
+thresholdLabel.Layout.Column = 3;
+qualityThresholdField = uieditfield(qualityGrid, 'numeric', ...
+    'Limits', [0 1], 'Value', cfg.processing.qualityThreshold);
+qualityThresholdField.Layout.Row = 2;
+qualityThresholdField.Layout.Column = 4;
 
 qualityAxes = uiaxes(qualityGrid);
-qualityAxes.Layout.Row = 2;
-qualityAxes.Layout.Column = [1 2];
+qualityAxes.Layout.Row = 3;
+qualityAxes.Layout.Column = [1 4];
 qualityAxes.ButtonDownFcn = @tiltROIClick;
 title(qualityAxes, 'Click two opposite corners to define the reference ROI');
 axis(qualityAxes, 'image');
@@ -239,8 +255,8 @@ axis(qualityAxes, 'image');
 roiLabel = uilabel(qualityGrid, ...
     'Text', 'Tilt reference: full field (choose a flat ROI for measurements)', ...
     'HorizontalAlignment', 'center');
-roiLabel.Layout.Row = 3;
-roiLabel.Layout.Column = [1 2];
+roiLabel.Layout.Row = 4;
+roiLabel.Layout.Column = [1 4];
 
 surfaceTab = uitab(views, 'Title', 'Surface');
 surfaceGrid = uigridlayout(surfaceTab, [1 1]);
@@ -785,6 +801,8 @@ ylabel(afterTiltAxes, 'y (pixel)');
         processing.phaseToleranceDeg = phaseTolerance.Value;
         processing.wavelengthNm = wavelength.Value;
         processing.tiltROI = tiltROI;
+        processing.filterRadius = round(filterRadiusField.Value);
+        processing.qualityThreshold = qualityThresholdField.Value;
 
         reconstructButton.Enable = 'off';
         selectROIButton.Enable = 'off';
