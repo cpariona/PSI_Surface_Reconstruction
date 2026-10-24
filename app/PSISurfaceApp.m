@@ -77,17 +77,23 @@ crosshairLabel.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Start voltage (V)');
 label.Layout.Row = 7; label.Layout.Column = 1;
-startVoltage = uieditfield(controls, 'numeric', 'Value', cfg.acquisition.startVoltage);
+startVoltage = uieditfield(controls, 'numeric', ...
+    'Value', cfg.acquisition.startVoltage, ...
+    'ValueChangedFcn', @updateVoltageStatus);
 startVoltage.Layout.Row = 7; startVoltage.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Step voltage (V)');
 label.Layout.Row = 8; label.Layout.Column = 1;
-stepVoltage = uieditfield(controls, 'numeric', 'Value', cfg.acquisition.stepVoltage);
+stepVoltage = uieditfield(controls, 'numeric', ...
+    'Value', cfg.acquisition.stepVoltage, ...
+    'ValueChangedFcn', @updateVoltageStatus);
 stepVoltage.Layout.Row = 8; stepVoltage.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Images');
 label.Layout.Row = 9; label.Layout.Column = 1;
-imageCount = uieditfield(controls, 'numeric', 'Value', cfg.acquisition.imageCount);
+imageCount = uieditfield(controls, 'numeric', ...
+    'Value', cfg.acquisition.imageCount, ...
+    'ValueChangedFcn', @updateVoltageStatus);
 imageCount.Layout.Row = 9; imageCount.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Settling time (s)');
@@ -95,7 +101,7 @@ label.Layout.Row = 10; label.Layout.Column = 1;
 settleTime = uieditfield(controls, 'numeric', 'Value', cfg.acquisition.settleTime);
 settleTime.Layout.Row = 10; settleTime.Layout.Column = 2;
 
-label = uilabel(controls, 'Text', 'Phase tolerance (deg)');
+label = uilabel(controls, 'Text', 'V2 tolerance (deg)');
 label.Layout.Row = 11; label.Layout.Column = 1;
 phaseTolerance = uieditfield(controls, 'numeric', 'Value', cfg.processing.phaseToleranceDeg);
 phaseTolerance.Layout.Row = 11; phaseTolerance.Layout.Column = 2;
@@ -132,6 +138,12 @@ statusLabel = uilabel(controls, 'Text', 'Disconnected', ...
     'HorizontalAlignment', 'center');
 statusLabel.Layout.Row = 18;
 statusLabel.Layout.Column = [1 2];
+
+voltageStatusLabel = uilabel(controls, ...
+    'Text', 'Piezo limit: connect hardware', ...
+    'HorizontalAlignment', 'center');
+voltageStatusLabel.Layout.Row = 19;
+voltageStatusLabel.Layout.Column = [1 2];
 
 views = uitabgroup(main);
 views.Layout.Row = 1;
@@ -193,7 +205,7 @@ axis(qualityAxes, 'image');
 surfaceTab = uitab(views, 'Title', 'Surface');
 surfaceGrid = uigridlayout(surfaceTab, [1 1]);
 surfaceAxes = uiaxes(surfaceGrid);
-title(surfaceAxes, 'Surface v2 (nm)');
+title(surfaceAxes, 'Surface v3 (nm)');
 
     function connectHardware(~,~)
         try
@@ -215,6 +227,7 @@ title(surfaceAxes, 'Surface v2 (nm)');
             gainField.Enable = 'on';
             applyCameraButton.Enable = 'on';
             acquireButton.Enable = 'on';
+            updateVoltageStatus();
             statusLabel.Text = 'Connected';
         catch ME
             disconnectHardware();
@@ -246,6 +259,7 @@ title(surfaceAxes, 'Surface v2 (nm)');
         gainField.Enable = 'off';
         applyCameraButton.Enable = 'off';
         acquireButton.Enable = 'off';
+        voltageStatusLabel.Text = 'Piezo limit: connect hardware';
         statusLabel.Text = 'Disconnected';
     end
 
@@ -426,6 +440,34 @@ title(surfaceAxes, 'Surface v2 (nm)');
             mean(values), std(values), min(frame(:)), max(frame(:)), saturated);
     end
 
+    function updateVoltageStatus(varargin)
+        count = round(imageCount.Value);
+        if count < 1
+            voltageStatusLabel.Text = 'Invalid scan: images must be >= 1';
+            return
+        end
+
+        voltages = startVoltage.Value + (0:count-1) * stepVoltage.Value;
+        requestedMin = min(voltages);
+        requestedMax = max(voltages);
+
+        if isempty(piezo)
+            voltageStatusLabel.Text = sprintf( ...
+                'Requested scan: %.3f to %.3f V', requestedMin, requestedMax);
+            return
+        end
+
+        if requestedMin < 0 || requestedMax > piezo.SafeMaxVoltage
+            voltageStatusLabel.Text = sprintf( ...
+                'INVALID: %.3f to %.3f V | safe max %.3f V', ...
+                requestedMin, requestedMax, piezo.SafeMaxVoltage);
+        else
+            voltageStatusLabel.Text = sprintf( ...
+                'Scan: %.3f to %.3f V | safe max %.3f V', ...
+                requestedMin, requestedMax, piezo.SafeMaxVoltage);
+        end
+    end
+
     function browseFolder(~,~)
         startFolder = fileparts(folderField.Value);
         if ~isfolder(startFolder)
@@ -508,8 +550,8 @@ title(surfaceAxes, 'Surface v2 (nm)');
 
             validPercent = 100 * nnz(result.validMask) / numel(result.validMask);
             statusLabel.Text = sprintf( ...
-                'Reconstruction v2 complete | frames %s | valid %.1f%%', ...
-                mat2str(result.selectedImageNumbers), validPercent);
+                'Reconstruction v3 | %d frames | phase span %.1f deg | valid %.1f%%', ...
+                result.imageCount, result.phaseSpanDeg, validPercent);
         catch ME
             statusLabel.Text = 'Reconstruction failed';
             uialert(fig, ME.message, 'Reconstruction');
