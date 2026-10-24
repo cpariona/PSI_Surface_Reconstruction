@@ -153,12 +153,20 @@ the reference region before quantitative measurements.
 
 ## Selecting a flat reference ROI
 
+In the `Phase quality` tab, `Filter radius (px)` and `Quality threshold`
+control the next `Reconstruct surface` run. Filtering is applied to wrapped
+phase; the quality threshold controls which pixels may be unwrapped and used
+for reference leveling. The spike threshold remains in `system_config.m`.
+
 After `Reconstruct surface`, open `Phase quality`, press
 `Select flat reference ROI` and click **two opposite corners** on the quality
 image. The ROI must contain a physically flat region with at least 25 reliable
 pixels and 2-D coverage. The backend recalculates the plane from that ROI,
 updates the surface without rereading the scan, and saves the new
 `reconstruction.mat`. `Use full field` resets the reference selection.
+
+The `Before / after tilt` tab compares 2-D height maps before and after
+the fitted reference plane is removed.
 
 The full-field default is only a convenient initial view. It can remove part
 of a sample's real slope/shape. Do not assume that a high-quality image region
@@ -174,3 +182,18 @@ phase differences smaller than pi. A discontinuity beyond this sampling
 condition cannot be recovered unambiguously from PSI alone. The phase steps
 in V3 are still estimated from one selected fringe profile; their accuracy
 must be checked with measured data.
+
+## Synthetic reconstruction check
+
+A focused check for 2-D unwrap continuity, masking of isolated spikes,
+and recovery of a known reference-plane slope is available at
+`tests/test_reconstruction_synthetic.m`. With MATLAB available:
+
+```matlab
+addpath('tests')
+test_reconstruction_synthetic
+```
+
+The check does not use physical hardware and does not establish optical
+measurement accuracy. Experimental comparison with a flat reference is
+required before interpreting surface heights quantitatively.
