@@ -364,6 +364,9 @@ ylabel(afterTiltAxes, 'y (pixel)');
     end
 
     function disconnectHardware(varargin)
+        if isProcessing
+            return
+        end
         if isConnecting
             return
         end
@@ -764,7 +767,7 @@ ylabel(afterTiltAxes, 'y (pixel)');
     end
 
     function acquireScan(~,~)
-        if isAcquiring || cameraFault || isempty(camera)
+        if isAcquiring || isProcessing || cameraFault || isempty(camera)
             return
         end
         stopCameraPreview();
@@ -831,77 +834,196 @@ ylabel(afterTiltAxes, 'y (pixel)');
     end
 
     function reconstructScan(~,~)
-        if isAcquiring || isConnecting
+        if isAcquiring || isConnecting || isProcessing
             return
         end
         stopCameraPreview();
-        if ~isempty(lastResult) && ...
-                ~strcmp(char(lastResult.folder), folderField.Value)
-            tiltROI = [];
-        end
-        roiSelecting = false;
-        roiFirst = [];
 
+        folderChanged = ~isempty(lastResult) && ...
+            ~strcmp(char(lastResult.folder), folderField.Value);
         processing = cfg.processing;
         processing.phaseToleranceDeg = phaseTolerance.Value;
         processing.wavelengthNm = wavelength.Value;
-        processing.tiltROI = tiltROI;
         processing.filterRadius = round(filterRadiusField.Value);
         processing.qualityThreshold = qualityThresholdField.Value;
+        processing.spikeThresholdRad = spikeThresholdField.Value;
+        if folderChanged
+            processing.tiltROI = [];
+        else
+            processing.tiltROI = tiltROI;
+        end
 
+        isProcessing = true;
         reconstructButton.Enable = 'off';
+        applyProcessingButton.Enable = 'off';
         selectROIButton.Enable = 'off';
         fullFieldButton.Enable = 'off';
-        statusLabel.Text = 'Reconstructing...';
-        drawnow;
+        statusLabel.Text = 'Reconstructing PSI and processing phase...';
+        processingStateLabel.Text = 'Processing...';
+        drawnow limitrate nocallbacks;
 
         try
             result = psi.processing.reconstructSurface( ...
                 folderField.Value, processing);
             lastResult = result;
-
-            imagesc(phaseAxes, result.filteredWrappedPhase);
-            axis(phaseAxes, 'image');
-            colormap(phaseAxes, 'gray');
-            title(phaseAxes, 'Filtered wrapped phase');
-
+            tiltROI = processing.tiltROI;
+            removeROI();
             showQualityAndSurface();
+            processingStateLabel.Text = ['Applied ' ...
+                datestr(result.processingAppliedAt, 'HH:MM:SS')];
             selectROIButton.Enable = 'on';
             fullFieldButton.Enable = 'on';
-
-            validPercent = 100 * nnz(result.validMask) / numel(result.validMask);
             statusLabel.Text = sprintf( ...
-                'Reconstruction v3 | %d frames | valid %.1f%% | spikes %d', ...
-                result.imageCount, validPercent, nnz(result.spikeMask));
+                'Reconstruction complete | %d frames | valid %.1f%% | spikes %d', ...
+                result.imageCount, ...
+                100*nnz(result.validMask)/numel(result.validMask), ...
+                nnz(result.spikeMask));
         catch ME
             statusLabel.Text = 'Reconstruction failed';
             uialert(fig, ME.message, 'Reconstruction');
+            updateProcessingState();
         end
+
+        isProcessing = false;
         reconstructButton.Enable = 'on';
+        updateProcessingState();
+    end
+
+    function onProcessingSettingChanged(~,~)
+        updateProcessingState();
+    end
+
+    function updateProcessingState()
+        if isProcessing
+            processingStateLabel.Text = 'Processing...';
+            applyProcessingButton.Enable = 'off';
+            return
+        end
+        if isempty(lastResult)
+            processingStateLabel.Text = 'Not processed';
+            applyProcessingButton.Enable = 'off';
+            return
+        end
+        if roiPending
+            processingStateLabel.Text = 'ROI pending: double-click';
+            applyProcessingButton.Enable = 'off';
+            return
+        end
+
+        current = lastResult.processing;
+        changed = round(filterRadiusField.Value) ~= current.filterRadius || ...
+            qualityThresholdField.Value ~= current.qualityThreshold || ...
+            spikeThresholdField.Value ~= current.spikeThresholdRad;
+
+        if changed
+            processingStateLabel.Text = 'Pending changes';
+        else
+            processingStateLabel.Text = ['Applied ' ...
+                datestr(lastResult.processingAppliedAt, 'HH:MM:SS')];
+        end
+        applyProcessingButton.Enable = 'on';
+    end
+
+    function applyProcessing(~,~)
+        if isProcessing || isAcquiring || isempty(lastResult) || roiPending
+            return
+        end
+        isProcessing = true;
+        applyProcessingButton.Enable = 'off';
+        reconstructButton.Enable = 'off';
+        selectROIButton.Enable = 'off';
+        fullFieldButton.Enable = 'off';
+        processingStateLabel.Text = 'Processing...';
+        statusLabel.Text = 'Filtering, 2-D unwrapping, removing spikes and tilt...';
+        drawnow limitrate nocallbacks;
+
+        try
+            processing = lastResult.processing;
+            processing.filterRadius = round(filterRadiusField.Value);
+            processing.qualityThreshold = qualityThresholdField.Value;
+            processing.spikeThresholdRad = spikeThresholdField.Value;
+            processing.tiltROI = tiltROI;
+
+            newResult = psi.processing.reprocessSurface(lastResult, processing);
+            lastResult = newResult;
+            showQualityAndSurface();
+            statusLabel.Text = sprintf( ...
+                'Processing applied | valid %.1f%% | spikes %d', ...
+                100*nnz(newResult.validMask)/numel(newResult.validMask), ...
+                nnz(newResult.spikeMask));
+        catch ME
+            statusLabel.Text = 'Processing failed (previous result kept)';
+            uialert(fig, ME.message, 'Phase processing');
+        end
+
+        isProcessing = false;
+        reconstructButton.Enable = 'on';
+        selectROIButton.Enable = 'on';
+        fullFieldButton.Enable = 'on';
+        updateProcessingState();
     end
 
     function showQualityAndSurface()
         result = lastResult;
-        cla(qualityAxes);
-        qualityImage = imagesc(qualityAxes, result.qualityMap, [0 1]);
-        qualityImage.ButtonDownFcn = @tiltROIClick;
-        qualityImage.HitTest = 'on';
-        qualityImage.PickableParts = 'all';
-        axis(qualityAxes, 'image');
-        colorbar(qualityAxes);
 
-        if isempty(tiltROI)
-            roiLabel.Text = 'Tilt reference: full field (may remove real shape)';
+        if isempty(qualityImageHandle) || ~isgraphics(qualityImageHandle)
+            qualityImageHandle = imagesc(qualityAxes, result.qualityMap, [0 1]);
+            axis(qualityAxes, 'image');
+            colorbar(qualityAxes);
         else
-            roiLabel.Text = sprintf( ...
-                'Reference ROI: x %.0f-%.0f, y %.0f-%.0f | %d reliable pixels', ...
-                tiltROI(1), tiltROI(1)+tiltROI(3), ...
-                tiltROI(2), tiltROI(2)+tiltROI(4), ...
-                nnz(result.referenceMask));
-            roiRectangle = rectangle(qualityAxes, 'Position', tiltROI, ...
-                'EdgeColor', [1 0.2 0.1], 'LineWidth', 2, ...
-                'HitTest', 'off', 'PickableParts', 'none');
+            qualityImageHandle.CData = result.qualityMap;
         end
+
+        maskData = zeros(size(result.qualityMap), 'uint8');
+        maskData(result.validMask) = 1;
+        maskData(result.spikeMask) = 2;
+        if isempty(maskImageHandle) || ~isgraphics(maskImageHandle)
+            maskImageHandle = imagesc(maskAxes, maskData, [0 2]);
+            axis(maskAxes, 'image');
+            colorbar(maskAxes);
+        else
+            maskImageHandle.CData = maskData;
+        end
+
+        if isempty(rawPhaseImageHandle) || ~isgraphics(rawPhaseImageHandle)
+            rawPhaseImageHandle = imagesc(rawPhaseAxes, result.wrappedPhase, [-pi pi]);
+            axis(rawPhaseAxes, 'image');
+            colorbar(rawPhaseAxes);
+        else
+            rawPhaseImageHandle.CData = result.wrappedPhase;
+        end
+
+        if isempty(filteredPhaseImageHandle) || ~isgraphics(filteredPhaseImageHandle)
+            filteredPhaseImageHandle = imagesc(filteredPhaseAxes, ...
+                result.filteredWrappedPhase, [-pi pi]);
+            axis(filteredPhaseAxes, 'image');
+            colorbar(filteredPhaseAxes);
+        else
+            filteredPhaseImageHandle.CData = result.filteredWrappedPhase;
+        end
+        title(filteredPhaseAxes, sprintf( ...
+            'Filtered wrapped phase (%dx%d px)', ...
+            2*result.processing.filterRadius+1, ...
+            2*result.processing.filterRadius+1));
+
+        if ~isempty(tiltROI) && ...
+                (isempty(roiRectangle) || ~isvalid(roiRectangle))
+            drawStoredROI();
+        end
+        if isempty(tiltROI)
+            reference = 'full field';
+        else
+            reference = sprintf('ROI: [%d %d %d %d]', round(tiltROI));
+        end
+        roiLabel.Text = sprintf( ...
+            '%s | valid %.1f%% | spikes %d | double-click ROI to apply tilt', ...
+            reference, 100*nnz(result.validMask)/numel(result.validMask), ...
+            nnz(result.spikeMask));
+
+        imagesc(phaseAxes, result.filteredWrappedPhase, [-pi pi]);
+        axis(phaseAxes, 'image');
+        title(phaseAxes, 'Filtered wrapped phase');
+        colormap(phaseAxes, 'gray');
 
         cla(surfaceAxes);
         surf(surfaceAxes, result.surfaceNm, 'EdgeColor', 'none');
@@ -917,70 +1039,128 @@ ylabel(afterTiltAxes, 'y (pixel)');
             result.unwrappedPhase, result.processing.wavelengthNm);
         imagesc(beforeTiltAxes, beforeHeight);
         axis(beforeTiltAxes, 'image');
-        colorbar(beforeTiltAxes);
-
         imagesc(afterTiltAxes, result.surfaceNm);
         axis(afterTiltAxes, 'image');
+        colorbar(beforeTiltAxes);
         colorbar(afterTiltAxes);
     end
 
-    function selectTiltROI(~,~)
-        if isempty(lastResult) || isAcquiring
-            return
+    function removeROI()
+        if ~isempty(roiClickedListener)
+            delete(roiClickedListener);
+            roiClickedListener = [];
         end
-        roiSelecting = true;
-        roiFirst = [];
-        views.SelectedTab = qualityTab;
-        roiLabel.Text = 'ROI: click the first corner on the quality image';
+        if ~isempty(roiMovedListener)
+            delete(roiMovedListener);
+            roiMovedListener = [];
+        end
+        if ~isempty(roiRectangle) && isvalid(roiRectangle)
+            delete(roiRectangle);
+        end
+        roiRectangle = [];
+        roiPending = false;
     end
 
-    function tiltROIClick(~,~)
-        if ~roiSelecting || isempty(lastResult)
+    function attachROIListeners()
+        roiClickedListener = addlistener(roiRectangle, ...
+            'ROIClicked', @confirmTiltROI);
+        roiMovedListener = addlistener(roiRectangle, ...
+            'ROIMoved', @markROIPending);
+    end
+
+    function drawStoredROI()
+        roiRectangle = drawrectangle(qualityAxes, ...
+            'Position', tiltROI, 'Color', 'y', 'FaceAlpha', 0.08, ...
+            'DrawingArea', [1 1 size(lastResult.qualityMap,2)-1 ...
+                size(lastResult.qualityMap,1)-1]);
+        attachROIListeners();
+    end
+
+    function selectTiltROI(~,~)
+        if isempty(lastResult) || isAcquiring || isProcessing
             return
         end
 
-        point = qualityAxes.CurrentPoint;
-        x = min(max(round(point(1,1)), 1), size(lastResult.qualityMap,2));
-        y = min(max(round(point(1,2)), 1), size(lastResult.qualityMap,1));
+        views.SelectedTab = qualityTab;
+        removeROI();
+        roiPending = true;
+        processingStateLabel.Text = 'Drawing ROI...';
+        applyProcessingButton.Enable = 'off';
+        roiLabel.Text = 'Drag a rectangle over a known flat reference region';
 
-        if isempty(roiFirst)
-            roiFirst = [x y];
-            roiLabel.Text = 'ROI: click the opposite corner';
+        try
+            roiRectangle = drawrectangle(qualityAxes, ...
+                'Color', 'y', 'FaceAlpha', 0.08, ...
+                'DrawingArea', [1 1 size(lastResult.qualityMap,2)-1 ...
+                    size(lastResult.qualityMap,1)-1]);
+            if isempty(roiRectangle.Position)
+                removeROI();
+                showQualityAndSurface();
+                updateProcessingState();
+                return
+            end
+            attachROIListeners();
+            roiLabel.Text = 'Move/resize the rectangle; double-click inside to apply tilt';
+            processingStateLabel.Text = 'ROI pending: double-click';
+        catch ME
+            removeROI();
+            showQualityAndSurface();
+            updateProcessingState();
+            uialert(fig, ME.message, 'ROI selection');
+        end
+    end
+
+    function markROIPending(~,~)
+        roiPending = true;
+        processingStateLabel.Text = 'ROI pending: double-click';
+        applyProcessingButton.Enable = 'off';
+        roiLabel.Text = 'ROI modified: double-click inside to recalculate tilt';
+    end
+
+    function confirmTiltROI(~, event)
+        if ~strcmp(event.SelectionType, 'double') || ...
+                isempty(lastResult) || isProcessing || isAcquiring
+            return
+        end
+        selectedROI = roiRectangle.Position;
+        if isempty(selectedROI) || any(selectedROI(3:4) <= 0)
             return
         end
 
-        selectedROI = [min(x,roiFirst(1)), min(y,roiFirst(2)), ...
-            abs(x-roiFirst(1)), abs(y-roiFirst(2))];
-        roiSelecting = false;
-        roiFirst = [];
-
+        isProcessing = true;
         try
             newResult = psi.processing.relevelSurface(lastResult, selectedROI);
             lastResult = newResult;
             tiltROI = selectedROI;
+            roiPending = false;
             showQualityAndSurface();
-            statusLabel.Text = 'Tilt recalculated from reference ROI';
+            statusLabel.Text = 'Tilt applied from selected reference ROI';
         catch ME
-            roiLabel.Text = sprintf('ROI rejected: %s', ME.message);
+            roiPending = true;
+            roiLabel.Text = 'ROI rejected: resize and double-click again';
             uialert(fig, ME.message, 'Reference ROI');
         end
+        isProcessing = false;
+        updateProcessingState();
     end
 
     function resetTiltROI(~,~)
-        if isempty(lastResult) || isAcquiring
+        if isempty(lastResult) || isProcessing || isAcquiring
             return
         end
-        roiSelecting = false;
-        roiFirst = [];
+        isProcessing = true;
         try
             newResult = psi.processing.relevelSurface(lastResult, []);
             lastResult = newResult;
             tiltROI = [];
+            removeROI();
             showQualityAndSurface();
-            statusLabel.Text = 'Tilt recalculated from full field';
+            statusLabel.Text = 'Tilt applied using full field';
         catch ME
             uialert(fig, ME.message, 'Tilt correction');
         end
+        isProcessing = false;
+        updateProcessingState();
     end
 
     function reportCameraError(context, ME)
@@ -1013,6 +1193,10 @@ ylabel(afterTiltAxes, 'y (pixel)');
     end
 
     function closeApp(~,~)
+        if isProcessing
+            statusLabel.Text = 'Finish phase processing before closing';
+            return
+        end
         if isConnecting
             statusLabel.Text = 'Connecting hardware: please retry closing';
             return
