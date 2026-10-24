@@ -59,16 +59,29 @@ When four approximately 90-degree-separated frames can still be selected, the re
 
 The primary maintained result is `result.surfaceNm` from V3.
 
-### Interactive reference correction
+### Interactive processing and reference correction
 
-`app/PSISurfaceApp.m` accepts the reference rectangle using two clicks
-on the quality view. The GUI invokes `psi.processing.relevelSurface`, which
-reuses stored unwrapped phase, calls `removeTiltPlane` and
-`phaseToSurface`, and persists `reconstruction.mat`. It does not duplicate
-phase processing in the GUI. The legacy output is intentionally unchanged,
-and the V2 comparison is relevelled when available.
+The GUI displays raw/filtered wrapped phase, quality and a mask classifying
+excluded, valid and isolated-spike pixels. Its numeric controls do not
+recompute on change: only `Apply processing` invokes
+`psi.processing.reprocessSurface` using the cached multi-frame PSI
+phase/quality. This backend recomputes the circular filter, quality-guided
+2-D unwrap, spike rejection, robust tilt fit and height. Its results and
+parameter values are saved in `reconstruction.mat`.
 
-Unwrapping uses quality-masked neighborhood connectivity; disconnected
-islands have no common phase origin and are omitted rather than being
-artificially aligned. A large phase gradient over pi rad/pixel or a phase
-step error upstream remains outside the guarantee of this method.
+`Draw reference ROI` uses an editable `images.roi.Rectangle` on
+`uiaxes`. The `ROIClicked` event with `SelectionType='double'`
+confirms the current rectangle. Only then does the GUI call
+`psi.processing.relevelSurface`, which refits the reference tilt without
+recomputing the PSI or unwrap. `ROIMoved` marks unconfirmed ROI edits
+as pending. `Full field` explicitly clears the ROI.
+
+All scientific processing remains in `src/+psi/+processing` per
+`AGENTS.md`; the UI only collects settings, handles ROI events,
+presents diagnostics and dispatches processing calls. Camera and piezo
+APIs are unchanged.
+
+Unwrapping uses quality-masked connectivity. Disconnected islands have
+no shared phase origin and are omitted; changes larger than pi radians
+between neighboring pixels or errors in estimated PSI phase steps
+still require additional experimental diagnosis.
