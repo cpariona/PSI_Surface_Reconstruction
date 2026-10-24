@@ -15,9 +15,18 @@ end
 requestedMin = min(commandedVoltage);
 requestedMax = max(commandedVoltage);
 if requestedMin < 0 || requestedMax > piezo.SafeMaxVoltage
-    error(['Requested voltage range is %.3f to %.3f V. ' ...
-        'Safe piezo range is 0 to %.3f V. Acquisition was not started.'], ...
-        requestedMin, requestedMax, piezo.SafeMaxVoltage);
+    maxImages = getMaxImageCount(acquisition.startVoltage, ...
+        acquisition.stepVoltage, piezo.SafeMaxVoltage);
+    if isfinite(maxImages)
+        error(['Requested voltage range is %.3f to %.3f V. ' ...
+            'Safe piezo range is 0 to %.3f V. Maximum image count ' ...
+            'with the current start/step is %d. Acquisition was not started.'], ...
+            requestedMin, requestedMax, piezo.SafeMaxVoltage, maxImages);
+    else
+        error(['Requested voltage range is %.3f to %.3f V. ' ...
+            'Safe piezo range is 0 to %.3f V. Acquisition was not started.'], ...
+            requestedMin, requestedMax, piezo.SafeMaxVoltage);
+    end
 end
 
 if ~isfolder(outputDir)
@@ -62,6 +71,18 @@ scan.piezoMaxVoltage = piezo.MaxVoltage;
 scan.piezoSafeMaxVoltage = piezo.SafeMaxVoltage;
 
 save(fullfile(outputDir, 'metadata.mat'), 'scan');
+end
+
+function maxImages = getMaxImageCount(startVoltage, stepVoltage, safeMax)
+if startVoltage < 0 || startVoltage > safeMax
+    maxImages = 0;
+elseif stepVoltage > 0
+    maxImages = floor((safeMax - startVoltage) / stepVoltage) + 1;
+elseif stepVoltage < 0
+    maxImages = floor(startVoltage / abs(stepVoltage)) + 1;
+else
+    maxImages = Inf;
+end
 end
 
 function setZero(piezo)
