@@ -93,3 +93,57 @@ docs/                   Architecture notes
 ```
 
 Acquired data are written under `data/` by default and are not versioned.
+
+## Camera errors and recovery
+
+Camera SDK operations now report the actual SDK status and operation (for example,
+`Camera Acquisition.Freeze failed [TIMED_OUT]`). The GUI displays the most
+recent issue in its diagnostics text area. It also appends timestamped errors to
+`data/camera_errors.log`, including transient errors that succeed on retry.
+
+- `TIMED_OUT`: no image arrived within the SDK timeout.
+- `TRANSFER_ERROR`: image transfer failed; examine the USB path and camera pixel rate.
+- `DEVICE_BUSY` / `ALL_DEVICES_BUSY`: the camera is busy or in use elsewhere.
+- `IO_REQUEST_FAILED`: driver I/O failure; verify SDK/driver compatibility.
+- `INVALID_CAMERA_HANDLE` / `CANT_OPEN_DEVICE`: the handle or connection is unavailable.
+
+A capture retries **once** for `TIMED_OUT`, `TRANSFER_ERROR`, or
+`DEVICE_BUSY`. If live preview still fails, the GUI stops preview and attempts
+one complete camera reopen while preserving exposure and gain. Even if it
+reopens successfully, preview does not restart until the operator presses
+`Camera On`. A failed reopen requires `Disconnect` then `Connect`.
+
+A camera error during a voltage scan aborts that scan. The piezo is returned
+to the commanded 0 V through the existing cleanup. Any BMPs already written
+are a **partial scan** and should not be reconstructed as if complete.
+
+These SDK codes identify failure categories, not necessarily the physical cause.
+For recurring failures, inspect the recorded operation/status and check the USB
+cable, port, driver versions and whether ThorCam is closed.
+
+## Phase noise filtering and tilt
+
+After multi-frame PSI, the **phase quality map** gives low weight to regions
+with weak modulation or saturated pixels. V3 filters wrapped phase as a complex
+phasor:
+
+```text
+z = exp(1i*wrappedPhase)
+filtered = angle(conv2(quality.^2 .* z, kernel, 'same') ...
+                 ./ conv2(quality.^2, kernel, 'same'))
+```
+
+The default `filterRadius = 2` gives a 5-by-5 pixel box kernel. Raising
+this radius smooths more noise but can erase fine surface details.
+
+After unwrapping, the tilt correction fits a quality-weighted 2-D phase plane
+`a*x + b*y + c` and subtracts it before conversion to nanometers.
+`qualityThreshold = 0.10` defines which pixels enter the plane fit and
+guide row alignment. Both parameters are set in
+`config/system_config.m` and are applied automatically during reconstruction.
+
+**Important limitation:** the current plane fit uses all high-quality pixels,
+not a user-selected flat reference ROI. If the sample is curved or has a
+significant intrinsic slope, a whole-field plane fit can remove part of the
+true surface shape. Validate tilt removal against a known reference or adapt
+the reference region before quantitative measurements.
