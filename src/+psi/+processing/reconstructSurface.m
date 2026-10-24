@@ -23,11 +23,14 @@ end
 
 filteredWrappedPhase = psi.processing.filterWrappedPhase( ...
     wrappedPhase, qualityMap, processing.filterRadius);
-unwrappedPhase = psi.processing.unwrapPhaseQuality( ...
-    filteredWrappedPhase, qualityMap, processing.qualityThreshold);
-[correctedPhase, tiltPlane, tiltCoefficients, validMask] = ...
+[unwrappedPhaseRaw, unwrapMask, unwrapDiagnostics] = ...
+    psi.processing.unwrapPhaseQuality(filteredWrappedPhase, ...
+    qualityMap, processing.qualityThreshold);
+[unwrappedPhase, spikeMask] = psi.processing.rejectPhaseSpikes( ...
+    unwrappedPhaseRaw, processing.spikeThresholdRad);
+[correctedPhase, tiltPlane, tiltCoefficients, validMask, referenceMask] = ...
     psi.processing.removeTiltPlane(unwrappedPhase, qualityMap, ...
-    processing.qualityThreshold);
+    processing.qualityThreshold, processing.tiltROI);
 surfaceNm = psi.processing.phaseToSurface(correctedPhase, ...
     processing.wavelengthNm);
 
@@ -38,6 +41,7 @@ selectedIndices = [];
 selectedPhaseShifts = [];
 v2SurfaceNm = [];
 legacySurfaceNm = [];
+v2UnwrappedPhase = [];
 
 try
     [selectedIndices, ~, selectedPhaseShifts] = ...
@@ -50,8 +54,11 @@ try
         v2WrappedPhase, v2QualityMap, processing.filterRadius);
     v2UnwrappedPhase = psi.processing.unwrapPhaseQuality( ...
         v2FilteredPhase, v2QualityMap, processing.qualityThreshold);
+    [v2UnwrappedPhase, ~] = psi.processing.rejectPhaseSpikes( ...
+        v2UnwrappedPhase, processing.spikeThresholdRad);
     [v2CorrectedPhase, ~, ~, ~] = psi.processing.removeTiltPlane( ...
-        v2UnwrappedPhase, v2QualityMap, processing.qualityThreshold);
+        v2UnwrappedPhase, v2QualityMap, ...
+        processing.qualityThreshold, processing.tiltROI);
     v2SurfaceNm = psi.processing.phaseToSurface(v2CorrectedPhase, ...
         processing.wavelengthNm);
 
@@ -80,6 +87,11 @@ result.modulation = modulation;
 result.background = background;
 result.filteredWrappedPhase = filteredWrappedPhase;
 result.unwrappedPhase = unwrappedPhase;
+result.unwrappedPhaseRaw = unwrappedPhaseRaw;
+result.unwrapMask = unwrapMask;
+result.unwrapDiagnostics = unwrapDiagnostics;
+result.spikeMask = spikeMask;
+result.referenceMask = referenceMask;
 result.tiltPlane = tiltPlane;
 result.tiltCoefficients = tiltCoefficients;
 result.validMask = validMask;
@@ -90,6 +102,12 @@ result.v2Available = v2Available;
 result.v2SelectedImageNumbers = selectedIndices - 1;
 result.v2PhaseShiftsDeg = selectedPhaseShifts;
 result.v2SurfaceNm = v2SurfaceNm;
+result.v2UnwrappedPhase = v2UnwrappedPhase;
+if v2Available
+    result.v2QualityMap = v2QualityMap;
+else
+    result.v2QualityMap = [];
+end
 result.legacySurfaceNm = legacySurfaceNm;
 result.v2Error = v2Error;
 result.processing = processing;
