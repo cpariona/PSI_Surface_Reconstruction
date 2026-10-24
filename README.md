@@ -19,6 +19,7 @@ The current version integrates:
 
 - Windows 11.
 - MATLAB R2025b or newer.
+- Image Processing Toolbox for the editable `drawrectangle` reference ROI.
 - Thorlabs Kinesis installed in `C:\Program Files\Thorlabs\Kinesis`.
 - Thorlabs DCx Camera Support / ThorCam installed.
 - TPZ001, serial number `81857565`.
