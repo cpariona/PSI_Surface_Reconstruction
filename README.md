@@ -11,7 +11,7 @@ The current version integrates:
 - Controller-reported voltage limit plus an optional actuator-specific voltage limit.
 - Multi-frame PSI v3 using all acquired interferograms.
 - Automatic estimation of the actual phase step of each interferogram from the fringe carrier.
-- Quality map, circular phase filtering, quality-aware unwrapping, 2-D tilt removal, and phase-to-surface conversion.
+- Quality map, circular phase filtering, quality-guided 2-D phase unwrapping, isolated-spike rejection, and reference-based 2-D tilt removal.
 - V2 and legacy reconstruction outputs retained when available for comparison.
 - A MATLAB GUI that calls the same backend used by the command-line workflows.
 
@@ -57,9 +57,10 @@ V3 is the maintained reconstruction path:
 4. Recover wrapped phase from `atan2(-S,C)`.
 5. Build a modulation-based quality map.
 6. Filter the wrapped phase in the complex domain.
-7. Perform quality-aware phase unwrapping.
-8. Fit and remove a weighted 2-D tilt plane.
-9. Convert reflected optical phase to height with `h = lambda*phi/(4*pi)`.
+7. Unwrap phase on a quality-weighted 2-D pixel graph; retain only its largest connected component.
+8. Mask isolated phase spikes; unreliable regions remain NaN in the height surface.
+9. Robustly fit and remove a 2-D tilt plane using a flat reference ROI.
+10. Convert reflected optical phase to height with `h = lambda*phi/(4*pi)`.
 
 The V2 four-frame and legacy results are also stored when four approximately 90-degree-separated frames can be identified.
 
@@ -67,6 +68,8 @@ The V2 four-frame and legacy results are also stored when four approximately 90-
 
 - Circular phase-filter radius: 2 pixels
 - Quality threshold: 0.10
+- Isolated-spike threshold: pi radians
+- Tilt reference ROI: [] (whole field until a reference is selected)
 - V2 phase-step target: 90 degrees
 - V2 phase-step tolerance: 5 degrees
 
@@ -147,3 +150,27 @@ not a user-selected flat reference ROI. If the sample is curved or has a
 significant intrinsic slope, a whole-field plane fit can remove part of the
 true surface shape. Validate tilt removal against a known reference or adapt
 the reference region before quantitative measurements.
+
+## Selecting a flat reference ROI
+
+After `Reconstruct surface`, open `Phase quality`, press
+`Select flat reference ROI` and click **two opposite corners** on the quality
+image. The ROI must contain a physically flat region with at least 25 reliable
+pixels and 2-D coverage. The backend recalculates the plane from that ROI,
+updates the surface without rereading the scan, and saves the new
+`reconstruction.mat`. `Use full field` resets the reference selection.
+
+The full-field default is only a convenient initial view. It can remove part
+of a sample's real slope/shape. Do not assume that a high-quality image region
+is geometrically flat. A new scan resets any old interactive ROI.
+
+The saved result includes `unwrapDiagnostics`, `unwrapMask`,
+`spikeMask`, `referenceMask`, `tiltPlane`, `tiltCoefficients`,
+`processing.tiltROI`, `surfaceNm`, and the preserved comparison surfaces.
+Holes in the surface indicate missing/low-confidence data, **not zero height**.
+
+The quality-guided unwrapping assumes neighboring valid pixels have true
+phase differences smaller than pi. A discontinuity beyond this sampling
+condition cannot be recovered unambiguously from PSI alone. The phase steps
+in V3 are still estimated from one selected fringe profile; their accuracy
+must be checked with measured data.
