@@ -133,7 +133,8 @@ folderLabel = uilabel(controls, 'Text', 'Acquisition folder');
 folderLabel.Layout.Row = 13;
 folderLabel.Layout.Column = [1 2];
 
-folderField = uieditfield(controls, 'text', 'Value', defaultFolder);
+folderField = uieditfield(controls, 'text', 'Value', defaultFolder, ...
+    'ValueChangedFcn', @onFolderChanged);
 folderField.Layout.Row = 14;
 folderField.Layout.Column = [1 2];
 
@@ -763,6 +764,7 @@ ylabel(afterTiltAxes, 'y (pixel)');
         selected = uigetdir(startFolder, 'Select acquisition folder');
         if ~isequal(selected, 0)
             folderField.Value = selected;
+            onFolderChanged();
         end
     end
 
@@ -890,7 +892,17 @@ ylabel(afterTiltAxes, 'y (pixel)');
     end
 
     function onProcessingSettingChanged(~,~)
+        filterRadiusField.Value = round(filterRadiusField.Value);
         updateProcessingState();
+    end
+
+    function onFolderChanged(varargin)
+        updateProcessingState();
+        if ~isempty(lastResult) && ...
+                ~strcmp(char(lastResult.folder), folderField.Value)
+            selectROIButton.Enable = 'off';
+            fullFieldButton.Enable = 'off';
+        end
     end
 
     function updateProcessingState()
@@ -901,6 +913,11 @@ ylabel(afterTiltAxes, 'y (pixel)');
         end
         if isempty(lastResult)
             processingStateLabel.Text = 'Not processed';
+            applyProcessingButton.Enable = 'off';
+            return
+        end
+        if ~strcmp(char(lastResult.folder), folderField.Value)
+            processingStateLabel.Text = 'Different folder: reconstruct';
             applyProcessingButton.Enable = 'off';
             return
         end
@@ -925,7 +942,8 @@ ylabel(afterTiltAxes, 'y (pixel)');
     end
 
     function applyProcessing(~,~)
-        if isProcessing || isAcquiring || isempty(lastResult) || roiPending
+        if isProcessing || isAcquiring || isempty(lastResult) || roiPending || ...
+                ~strcmp(char(lastResult.folder), folderField.Value)
             return
         end
         isProcessing = true;
@@ -1077,7 +1095,8 @@ ylabel(afterTiltAxes, 'y (pixel)');
     end
 
     function selectTiltROI(~,~)
-        if isempty(lastResult) || isAcquiring || isProcessing
+        if isempty(lastResult) || isAcquiring || isProcessing || ...
+                ~strcmp(char(lastResult.folder), folderField.Value)
             return
         end
 
@@ -1145,7 +1164,8 @@ ylabel(afterTiltAxes, 'y (pixel)');
     end
 
     function resetTiltROI(~,~)
-        if isempty(lastResult) || isProcessing || isAcquiring
+        if isempty(lastResult) || isProcessing || isAcquiring || ...
+                ~strcmp(char(lastResult.folder), folderField.Value)
             return
         end
         isProcessing = true;
