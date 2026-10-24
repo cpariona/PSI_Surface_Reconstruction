@@ -34,4 +34,33 @@ assert(abs(coefficients.xRadPerPixel - 0.055) < 0.01);
 assert(abs(coefficients.yRadPerPixel - 0.035) < 0.01);
 assert(isnan(corrected(60,75)));
 assert(isnan(corrected(22,35)));
+
+% Cached reprocessing uses the stored PSI phase and quality map.
+tempFolder = tempname;
+mkdir(tempFolder);
+cached.folder = string(tempFolder);
+cached.wrappedPhase = wrapped;
+cached.qualityMap = quality;
+cached.v2Available = false;
+cached.v2WrappedPhase = [];
+cached.v2QualityMap = [];
+
+settings.filterRadius = 1;
+settings.qualityThreshold = 0.1;
+settings.spikeThresholdRad = pi;
+settings.tiltROI = roi;
+settings.wavelengthNm = 660;
+
+processed = psi.processing.reprocessSurface(cached, settings);
+assert(isfile(fullfile(tempFolder, 'reconstruction.mat')));
+assert(isequal(size(processed.surfaceNm), size(wrapped)));
+assert(~any(isfinite(processed.surfaceNm(20:25,30:40)), 'all'));
+
+settings.filterRadius = 3;
+reprocessed = psi.processing.reprocessSurface(processed, settings);
+assert(reprocessed.processing.filterRadius == 3);
+assert(~isequaln(reprocessed.filteredWrappedPhase, processed.filteredWrappedPhase));
+
+relevelled = psi.processing.relevelSurface(reprocessed, []);
+assert(isempty(relevelled.processing.tiltROI));
 end
