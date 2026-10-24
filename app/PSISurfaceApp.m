@@ -17,6 +17,10 @@ crosshairDragging = false;
 horizontalProfileHandle = [];
 verticalProfileHandle = [];
 isAcquiring = false;
+isPreviewCapturing = false;
+pendingDisconnect = false;
+pendingClose = false;
+lastLoggedCameraErrorCount = 0;
 cameraFault = false;
 defaultFolder = fullfile(root, 'data', datestr(now, 'yyyymmdd_HHMMSS'));
 
@@ -216,6 +220,9 @@ surfaceAxes = uiaxes(surfaceGrid);
 title(surfaceAxes, 'Surface v3 (nm)');
 
     function connectHardware(~,~)
+        if isAcquiring || isPreviewCapturing
+            return
+        end
         try
             statusLabel.Text = 'Connecting...';
             drawnow;
@@ -228,6 +235,9 @@ title(surfaceAxes, 'Surface v3 (nm)');
             exposureField.Value = camera.getExposure();
             gainField.Value = camera.getGain();
             cameraFault = false;
+            lastLoggedCameraErrorCount = 0;
+            pendingDisconnect = false;
+            pendingClose = false;
 
             connectButton.Enable = 'off';
             disconnectButton.Enable = 'on';
@@ -251,7 +261,13 @@ title(surfaceAxes, 'Surface v3 (nm)');
             statusLabel.Text = 'Acquisition running: disconnect disabled';
             return
         end
+        if isPreviewCapturing
+            pendingDisconnect = true;
+            stopCameraPreview();
+            return
+        end
 
+        pendingDisconnect = false;
         stopCameraPreview();
 
         if ~isempty(previewTimer)
@@ -285,6 +301,9 @@ title(surfaceAxes, 'Surface v3 (nm)');
     end
 
     function toggleCameraPreview(~,~)
+        if isAcquiring || isPreviewCapturing || cameraFault || isempty(previewTimer)
+            return
+        end
         if strcmp(previewTimer.Running, 'off')
             cameraButton.Text = 'Camera Off';
             statusLabel.Text = 'Camera preview';
@@ -313,15 +332,25 @@ title(surfaceAxes, 'Surface v3 (nm)');
     end
 
     function updateCameraPreview(~,~)
-        if isAcquiring || cameraFault || isempty(camera)
+        if isAcquiring || isPreviewCapturing || cameraFault || isempty(camera)
             return
         end
+        isPreviewCapturing = true;
         try
             frame = camera.capture();
         catch ME
+            isPreviewCapturing = false;
+            if finishPendingDisconnect()
+                return
+            end
             recoverCameraAfterPreviewFailure(ME);
             return
         end
+        isPreviewCapturing = false;
+        if finishPendingDisconnect()
+            return
+        end
+        noteRecoveredErrors();
         try
             showFrame(frame);
         catch ME
@@ -330,6 +359,30 @@ title(surfaceAxes, 'Surface v3 (nm)');
             statusLabel.Text = 'Preview display failed';
             uialert(fig, ME.message, 'Preview display');
         end
+    end
+
+    function handled = finishPendingDisconnect()
+        handled = pendingDisconnect;
+        if ~handled
+            return
+        end
+        pendingDisconnect = false;
+        if pendingClose
+            closeApp();
+        else
+            disconnectHardware();
+        end
+    end
+
+    function noteRecoveredErrors()
+        if isempty(camera) || camera.ErrorCount <= lastLoggedCameraErrorCount
+            return
+        end
+        lastLoggedCameraErrorCount = camera.ErrorCount;
+        recovered = MException('psi:Camera:RecoveredTransient', ...
+            'A transient SDK error recovered after retry: %s', ...
+            char(camera.LastError));
+        reportCameraError('Recovered capture error', recovered);
     end
 
     function onPreviewTimerError(~, event)
@@ -363,11 +416,21 @@ title(surfaceAxes, 'Surface v3 (nm)');
             gainField.Value = camera.getGain();
 
             cameraFault = false;
+            lastLoggedCameraErrorCount = camera.ErrorCount;
             cameraButton.Enable = 'on';
             acquireButton.Enable = 'on';
+            applyCameraButton.Enable = 'on';
             statusLabel.Text = 'Camera reopened; preview stopped';
             outcome = 'The camera was reopened. Press Camera On to resume.';
         catch recoveryError
+            if ~isempty(camera)
+                try
+                    camera.disconnect();
+                catch
+                end
+                delete(camera);
+                camera = [];
+            end
             cameraFault = true;
             reportCameraError('Camera reopen', recoveryError);
             cameraButton.Enable = 'off';
@@ -646,6 +709,7 @@ title(surfaceAxes, 'Surface v3 (nm)');
     end
 
     function updatePreview(frame, index, count, commanded, measured)
+        noteRecoveredErrors();
         showFrame(frame);
         statusLabel.Text = sprintf('%d/%d | %.3f V -> %.3f V', ...
             index, count, commanded, measured);
@@ -729,6 +793,13 @@ title(surfaceAxes, 'Surface v3 (nm)');
             statusLabel.Text = 'Finish acquisition before closing';
             return
         end
+        if isPreviewCapturing
+            pendingDisconnect = true;
+            pendingClose = true;
+            stopCameraPreview();
+            return
+        end
+        pendingClose = false;
         disconnectHardware();
         delete(fig);
     end
