@@ -46,7 +46,15 @@ for k = 1:numel(commandedVoltage)
     piezo.setVoltage(commandedVoltage(k));
     pause(acquisition.settleTime);
 
-    frame = camera.capture();
+    try
+        frame = camera.capture();
+    catch ME
+        failure = MException('psi:Acquisition:Camera', ...
+            'Camera failed on image %d/%d at %.3f V: %s', ...
+            k, numel(commandedVoltage), commandedVoltage(k), ME.message);
+        failure = addCause(failure, ME);
+        throw(failure);
+    end
     measuredVoltage(k) = piezo.readVoltage();
 
     fileName = sprintf('image%d.bmp', k-1);
