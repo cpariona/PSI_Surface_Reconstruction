@@ -12,6 +12,10 @@ imageHandle = [];
 histHandle = [];
 crosshairX = [];
 crosshairY = [];
+crosshairPos = [];
+crosshairDragging = false;
+horizontalProfileHandle = [];
+verticalProfileHandle = [];
 defaultFolder = fullfile(root, 'data', datestr(now, 'yyyymmdd_HHMMSS'));
 
 fig = uifigure('Name', 'PSI Surface Reconstruction', ...
@@ -61,10 +65,15 @@ applyCameraButton = uibutton(controls, 'Text', 'Apply camera settings', ...
 applyCameraButton.Layout.Row = 5;
 applyCameraButton.Layout.Column = [1 2];
 
-crosshairCheck = uicheckbox(controls, 'Text', 'Center crosshair', ...
+crosshairCheck = uicheckbox(controls, 'Text', 'Show crosshair', ...
     'Value', true, 'ValueChangedFcn', @updateCrosshair);
 crosshairCheck.Layout.Row = 6;
-crosshairCheck.Layout.Column = [1 2];
+crosshairCheck.Layout.Column = 1;
+
+crosshairLabel = uilabel(controls, 'Text', 'x: -   y: -', ...
+    'HorizontalAlignment', 'right');
+crosshairLabel.Layout.Row = 6;
+crosshairLabel.Layout.Column = 2;
 
 label = uilabel(controls, 'Text', 'Start voltage (V)');
 label.Layout.Row = 7; label.Layout.Column = 1;
@@ -129,11 +138,32 @@ views.Layout.Row = 1;
 views.Layout.Column = 2;
 
 imageTab = uitab(views, 'Title', 'Interferogram');
-imageGrid = uigridlayout(imageTab, [1 1]);
+imageGrid = uigridlayout(imageTab, [2 2]);
+imageGrid.RowHeight = {'2x', '1x'};
+imageGrid.ColumnWidth = {'1x', '1x'};
+
 imageAxes = uiaxes(imageGrid);
-title(imageAxes, 'Camera image');
+imageAxes.Layout.Row = 1;
+imageAxes.Layout.Column = [1 2];
+title(imageAxes, 'Camera image - click or drag crosshair');
 axis(imageAxes, 'image');
 colormap(imageAxes, 'gray');
+
+horizontalProfileAxes = uiaxes(imageGrid);
+horizontalProfileAxes.Layout.Row = 2;
+horizontalProfileAxes.Layout.Column = 1;
+title(horizontalProfileAxes, 'Horizontal profile I(x)');
+xlabel(horizontalProfileAxes, 'x (pixel)');
+ylabel(horizontalProfileAxes, 'Intensity');
+ylim(horizontalProfileAxes, [0 255]);
+
+verticalProfileAxes = uiaxes(imageGrid);
+verticalProfileAxes.Layout.Row = 2;
+verticalProfileAxes.Layout.Column = 2;
+title(verticalProfileAxes, 'Vertical profile I(y)');
+xlabel(verticalProfileAxes, 'y (pixel)');
+ylabel(verticalProfileAxes, 'Intensity');
+ylim(verticalProfileAxes, [0 255]);
 
 intensityTab = uitab(views, 'Title', 'Intensity');
 intensityGrid = uigridlayout(intensityTab, [2 1]);
@@ -264,6 +294,9 @@ title(surfaceAxes, 'Surface v2 (nm)');
     function showFrame(frame)
         if isempty(imageHandle) || ~isgraphics(imageHandle)
             imageHandle = imagesc(imageAxes, frame);
+            imageHandle.ButtonDownFcn = @startCrosshairDrag;
+            imageHandle.PickableParts = 'all';
+            imageHandle.HitTest = 'on';
             axis(imageAxes, 'image');
             colormap(imageAxes, 'gray');
         else
@@ -276,16 +309,27 @@ title(surfaceAxes, 'Surface v2 (nm)');
     end
 
     function updateCrosshair(varargin)
-        if crosshairCheck.Value && ~isempty(imageHandle) && isgraphics(imageHandle)
-            frame = imageHandle.CData;
-            x = (size(frame,2) + 1) / 2;
-            y = (size(frame,1) + 1) / 2;
+        if isempty(imageHandle) || ~isgraphics(imageHandle)
+            return
+        end
+
+        frame = imageHandle.CData;
+        if isempty(crosshairPos)
+            crosshairPos = [(size(frame,2) + 1)/2, (size(frame,1) + 1)/2];
+        end
+
+        crosshairPos(1) = min(max(crosshairPos(1), 1), size(frame,2));
+        crosshairPos(2) = min(max(crosshairPos(2), 1), size(frame,1));
+
+        if crosshairCheck.Value
             if isempty(crosshairX) || ~isgraphics(crosshairX)
-                crosshairX = xline(imageAxes, x, '--');
-                crosshairY = yline(imageAxes, y, '--');
+                crosshairX = xline(imageAxes, crosshairPos(1), '--', ...
+                    'HitTest', 'off', 'PickableParts', 'none');
+                crosshairY = yline(imageAxes, crosshairPos(2), '--', ...
+                    'HitTest', 'off', 'PickableParts', 'none');
             else
-                crosshairX.Value = x;
-                crosshairY.Value = y;
+                crosshairX.Value = crosshairPos(1);
+                crosshairY.Value = crosshairPos(2);
             end
         else
             if ~isempty(crosshairX) && isgraphics(crosshairX)
@@ -297,6 +341,72 @@ title(surfaceAxes, 'Surface v2 (nm)');
             crosshairX = [];
             crosshairY = [];
         end
+
+        x = round(crosshairPos(1));
+        y = round(crosshairPos(2));
+        crosshairLabel.Text = sprintf('x: %d   y: %d', x, y);
+        updateProfiles(frame);
+    end
+
+    function startCrosshairDrag(~,~)
+        crosshairDragging = true;
+        moveCrosshairToPointer();
+        fig.WindowButtonMotionFcn = @dragCrosshair;
+        fig.WindowButtonUpFcn = @stopCrosshairDrag;
+    end
+
+    function dragCrosshair(~,~)
+        if crosshairDragging
+            moveCrosshairToPointer();
+        end
+    end
+
+    function stopCrosshairDrag(~,~)
+        crosshairDragging = false;
+        fig.WindowButtonMotionFcn = [];
+        fig.WindowButtonUpFcn = [];
+    end
+
+    function moveCrosshairToPointer()
+        if isempty(imageHandle) || ~isgraphics(imageHandle)
+            return
+        end
+
+        point = imageAxes.CurrentPoint;
+        frame = imageHandle.CData;
+        x = min(max(point(1,1), 1), size(frame,2));
+        y = min(max(point(1,2), 1), size(frame,1));
+        crosshairPos = [x y];
+        updateCrosshair();
+        drawnow limitrate;
+    end
+
+    function updateProfiles(frame)
+        x = round(crosshairPos(1));
+        y = round(crosshairPos(2));
+
+        horizontalProfile = double(frame(y,:));
+        verticalProfile = double(frame(:,x));
+
+        if isempty(horizontalProfileHandle) || ~isgraphics(horizontalProfileHandle)
+            horizontalProfileHandle = plot(horizontalProfileAxes, ...
+                1:size(frame,2), horizontalProfile);
+            xlim(horizontalProfileAxes, [1 size(frame,2)]);
+            ylim(horizontalProfileAxes, [0 255]);
+
+            verticalProfileHandle = plot(verticalProfileAxes, ...
+                1:size(frame,1), verticalProfile);
+            xlim(verticalProfileAxes, [1 size(frame,1)]);
+            ylim(verticalProfileAxes, [0 255]);
+        else
+            horizontalProfileHandle.XData = 1:size(frame,2);
+            horizontalProfileHandle.YData = horizontalProfile;
+            verticalProfileHandle.XData = 1:size(frame,1);
+            verticalProfileHandle.YData = verticalProfile;
+        end
+
+        title(horizontalProfileAxes, sprintf('Horizontal profile I(x), y = %d', y));
+        title(verticalProfileAxes, sprintf('Vertical profile I(y), x = %d', x));
     end
 
     function updateIntensity(frame)
