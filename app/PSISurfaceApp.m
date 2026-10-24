@@ -247,6 +247,20 @@ surfaceGrid = uigridlayout(surfaceTab, [1 1]);
 surfaceAxes = uiaxes(surfaceGrid);
 title(surfaceAxes, 'Surface v3 (nm)');
 
+comparisonTab = uitab(views, 'Title', 'Before / after tilt');
+comparisonGrid = uigridlayout(comparisonTab, [1 2]);
+comparisonGrid.ColumnWidth = {'1x', '1x'};
+
+beforeTiltAxes = uiaxes(comparisonGrid);
+title(beforeTiltAxes, 'Before tilt removal (nm)');
+xlabel(beforeTiltAxes, 'x (pixel)');
+ylabel(beforeTiltAxes, 'y (pixel)');
+
+afterTiltAxes = uiaxes(comparisonGrid);
+title(afterTiltAxes, 'After tilt removal (nm)');
+xlabel(afterTiltAxes, 'x (pixel)');
+ylabel(afterTiltAxes, 'y (pixel)');
+
     function connectHardware(~,~)
         if isAcquiring || isPreviewCapturing || isConnecting
             return
@@ -835,6 +849,16 @@ title(surfaceAxes, 'Surface v3 (nm)');
         zlabel(surfaceAxes, 'height (nm)');
         title(surfaceAxes, 'Surface v3 (nm) - unreliable pixels omitted');
         colorbar(surfaceAxes);
+
+        beforeHeight = psi.processing.phaseToSurface( ...
+            result.unwrappedPhase, result.processing.wavelengthNm);
+        imagesc(beforeTiltAxes, beforeHeight);
+        axis(beforeTiltAxes, 'image');
+        colorbar(beforeTiltAxes);
+
+        imagesc(afterTiltAxes, result.surfaceNm);
+        axis(afterTiltAxes, 'image');
+        colorbar(afterTiltAxes);
     end
 
     function selectTiltROI(~,~)
