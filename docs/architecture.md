@@ -6,8 +6,8 @@ The repository has one maintained backend under `src/+psi`.
 GUI / workflows
       |
       +--> +hardware      TPZ001 and DCC1545M access
-      +--> +acquisition   voltage scan -> image capture -> BMP + metadata
-      +--> +processing    frame selection -> PSI -> stabilization -> surface
+      +--> +acquisition   validate scan -> voltage scan -> BMP + metadata
+      +--> +processing    phase-step estimation -> multi-frame PSI -> surface
 ```
 
 ## Hardware ownership
@@ -28,30 +28,32 @@ SoftwareOnly + OpenLoop
 SetOutputVoltage
 ```
 
+The controller-reported maximum output is stored as `MaxVoltage`. The maintained command limit is `SafeMaxVoltage`, defined as the lower of the controller limit and the optional configured actuator limit. The complete requested voltage vector is validated before an acquisition starts, and `setVoltage` independently rejects an individual out-of-range command.
+
 The application returns the commanded voltage to zero and restores the original TPZ001 source/mode when it disconnects.
 
 The DCC1545M uses the validated `uc480DotNet.dll` path and `RGBA8Packed` acquisition. Only the first channel is retained because the camera is monochrome. Exposure and master gain are controlled through the same DCx .NET interface and are held fixed during a fringe scan.
 
 ## Processing
 
-Frame selection and four-step PSI remain unchanged from v1 so that v2 isolates the surface-reconstruction changes.
-
-### Legacy path
+### V3 maintained path
 
 1. Estimate fringe spatial frequency from a horizontal profile.
-2. Use cross-correlation to find four frames separated by approximately 90 degrees.
-3. Compute wrapped phase with the four-step PSI equation.
-4. Unwrap across rows and columns.
-5. Remove the measured linear carrier and reference offset.
-6. Convert reflected optical phase to surface height with `h = lambda*phi/(4*pi)`.
+2. Measure the relative phase step of every interferogram from the complex FFT coefficient at the fringe carrier.
+3. Use every acquired image in a least-squares PSI model:
+   `I_k = A + C*cos(delta_k) + S*sin(delta_k)`.
+4. Recover wrapped phase as `atan2(-S,C)`.
+5. Compute a normalized modulation-based quality map. Saturated pixels receive zero quality.
+6. Smooth the wrapped phase as a complex phasor weighted by quality.
+7. Unwrap rows and align neighboring rows using reliable vertical phase differences.
+8. Fit a weighted 2-D plane to reliable pixels and subtract it as interferometric tilt.
+9. Convert corrected phase to surface height with `h = lambda*phi/(4*pi)`.
 
-### V2 path
+### Comparison outputs
 
-1. Compute wrapped phase from the same four selected interferograms.
-2. Compute a normalized modulation-based quality map. Saturated pixels receive zero quality.
-3. Smooth the wrapped phase as a complex phasor, weighted by the quality map.
-4. Unwrap each row and align neighboring rows using reliable vertical phase differences.
-5. Fit a weighted 2-D plane to the unwrapped phase and subtract it as interferometric tilt.
-6. Convert the corrected phase to surface height with `h = lambda*phi/(4*pi)`.
+When four approximately 90-degree-separated frames can still be selected, the reconstruction file also stores:
 
-The v2 result is returned as `result.surfaceNm`. The previous reconstruction is retained as `result.legacySurfaceNm` for direct comparison.
+- `v2SurfaceNm`: the V2 four-frame reconstruction with quality filtering and 2-D tilt removal.
+- `legacySurfaceNm`: the original sequential unwrap and linear-carrier reconstruction.
+
+The primary maintained result is `result.surfaceNm` from V3.
