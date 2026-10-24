@@ -16,6 +16,8 @@ crosshairPos = [];
 crosshairDragging = false;
 horizontalProfileHandle = [];
 verticalProfileHandle = [];
+isAcquiring = false;
+cameraFault = false;
 defaultFolder = fullfile(root, 'data', datestr(now, 'yyyymmdd_HHMMSS'));
 
 fig = uifigure('Name', 'PSI Surface Reconstruction', ...
@@ -145,6 +147,12 @@ voltageStatusLabel = uilabel(controls, ...
 voltageStatusLabel.Layout.Row = 19;
 voltageStatusLabel.Layout.Column = [1 2];
 
+cameraErrorField = uitextarea(controls, 'Editable', 'off', ...
+    'Value', {'Camera diagnostics: no errors'}, ...
+    'Tooltip', 'Last error; history saved in data/camera_errors.log');
+cameraErrorField.Layout.Row = 20;
+cameraErrorField.Layout.Column = [1 2];
+
 views = uitabgroup(main);
 views.Layout.Row = 1;
 views.Layout.Column = 2;
@@ -214,11 +222,12 @@ title(surfaceAxes, 'Surface v3 (nm)');
             piezo = psi.hardware.TPZ001Controller(cfg.hardware);
             camera = psi.hardware.DCC1545MCamera(cfg.hardware);
             previewTimer = timer('ExecutionMode', 'fixedSpacing', ...
-                'Period', 0.1, 'BusyMode', 'drop', ...
-                'TimerFcn', @updateCameraPreview);
+                'Period', 0.1, 'TimerFcn', @updateCameraPreview, ...
+                'ErrorFcn', @onPreviewTimerError);
 
             exposureField.Value = camera.getExposure();
             gainField.Value = camera.getGain();
+            cameraFault = false;
 
             connectButton.Enable = 'off';
             disconnectButton.Enable = 'on';
@@ -230,6 +239,7 @@ title(surfaceAxes, 'Surface v3 (nm)');
             updateVoltageStatus();
             statusLabel.Text = 'Connected';
         catch ME
+            reportCameraError('Connect', ME);
             disconnectHardware();
             statusLabel.Text = 'Connection failed';
             uialert(fig, ME.message, 'Hardware connection');
@@ -237,6 +247,11 @@ title(surfaceAxes, 'Surface v3 (nm)');
     end
 
     function disconnectHardware(varargin)
+        if isAcquiring
+            statusLabel.Text = 'Acquisition running: disconnect disabled';
+            return
+        end
+
         stopCameraPreview();
 
         if ~isempty(previewTimer)
@@ -244,6 +259,11 @@ title(surfaceAxes, 'Surface v3 (nm)');
             previewTimer = [];
         end
         if ~isempty(camera)
+            try
+                camera.disconnect();
+            catch ME
+                reportCameraError('Disconnect / Exit', ME);
+            end
             delete(camera);
             camera = [];
         end
@@ -252,6 +272,7 @@ title(surfaceAxes, 'Surface v3 (nm)');
             piezo = [];
         end
 
+        cameraFault = false;
         connectButton.Enable = 'on';
         disconnectButton.Enable = 'off';
         cameraButton.Enable = 'off';
@@ -275,6 +296,9 @@ title(surfaceAxes, 'Surface v3 (nm)');
     end
 
     function applyCameraSettings(~,~)
+        if isAcquiring || cameraFault
+            return
+        end
         try
             camera.setExposure(exposureField.Value);
             camera.setGain(gainField.Value);
@@ -283,18 +307,78 @@ title(surfaceAxes, 'Surface v3 (nm)');
             statusLabel.Text = sprintf('Camera: %.3f ms | gain %.0f%%', ...
                 exposureField.Value, gainField.Value);
         catch ME
+            reportCameraError('Camera settings', ME);
             uialert(fig, ME.message, 'Camera settings');
         end
     end
 
     function updateCameraPreview(~,~)
+        if isAcquiring || cameraFault || isempty(camera)
+            return
+        end
         try
-            showFrame(camera.capture());
+            frame = camera.capture();
+        catch ME
+            recoverCameraAfterPreviewFailure(ME);
+            return
+        end
+        try
+            showFrame(frame);
         catch ME
             stopCameraPreview();
-            statusLabel.Text = 'Camera preview failed';
-            uialert(fig, ME.message, 'Camera preview');
+            reportCameraError('Preview display', ME);
+            statusLabel.Text = 'Preview display failed';
+            uialert(fig, ME.message, 'Preview display');
         end
+    end
+
+    function onPreviewTimerError(~, event)
+        stopCameraPreview();
+        try
+            details = char(string(event.Data.Message));
+        catch
+            details = 'Unhandled timer callback error.';
+        end
+        ME = MException('psi:Camera:PreviewTimer', '%s', details);
+        reportCameraError('Preview timer', ME);
+        statusLabel.Text = 'Preview timer failed';
+        uialert(fig, ME.message, 'Preview timer');
+    end
+
+    function recoverCameraAfterPreviewFailure(failure)
+        stopCameraPreview();
+        reportCameraError('Live view / capture', failure);
+
+        oldCamera = camera;
+        camera = [];
+        try
+            oldCamera.disconnect();
+            delete(oldCamera);
+
+            % Reopen only once. Leave preview off so failures remain visible.
+            camera = psi.hardware.DCC1545MCamera(cfg.hardware);
+            camera.setExposure(exposureField.Value);
+            camera.setGain(gainField.Value);
+            exposureField.Value = camera.getExposure();
+            gainField.Value = camera.getGain();
+
+            cameraFault = false;
+            cameraButton.Enable = 'on';
+            acquireButton.Enable = 'on';
+            statusLabel.Text = 'Camera reopened; preview stopped';
+            outcome = 'The camera was reopened. Press Camera On to resume.';
+        catch recoveryError
+            cameraFault = true;
+            reportCameraError('Camera reopen', recoveryError);
+            cameraButton.Enable = 'off';
+            acquireButton.Enable = 'off';
+            applyCameraButton.Enable = 'off';
+            statusLabel.Text = 'Camera unavailable: reconnect hardware';
+            outcome = sprintf('Reopen failed: %s\nUse Disconnect, then Connect.', ...
+                recoveryError.message);
+        end
+        uialert(fig, sprintf('Preview failed: %s\n\n%s', ...
+            failure.message, outcome), 'Camera SDK error');
     end
 
     function stopCameraPreview()
@@ -319,7 +403,7 @@ title(surfaceAxes, 'Surface v3 (nm)');
 
         updateCrosshair();
         updateIntensity(frame);
-        drawnow limitrate;
+        drawnow limitrate nocallbacks;
     end
 
     function updateCrosshair(varargin)
@@ -503,6 +587,9 @@ title(surfaceAxes, 'Surface v3 (nm)');
     end
 
     function acquireScan(~,~)
+        if isAcquiring || cameraFault || isempty(camera)
+            return
+        end
         stopCameraPreview();
 
         acquisition = cfg.acquisition;
@@ -511,13 +598,22 @@ title(surfaceAxes, 'Surface v3 (nm)');
         acquisition.imageCount = round(imageCount.Value);
         acquisition.settleTime = settleTime.Value;
 
+        isAcquiring = true;
         acquireButton.Enable = 'off';
+        disconnectButton.Enable = 'off';
+        reconstructButton.Enable = 'off';
+        browseButton.Enable = 'off';
         cameraButton.Enable = 'off';
         exposureField.Enable = 'off';
         gainField.Enable = 'off';
         applyCameraButton.Enable = 'off';
+        startVoltage.Enable = 'off';
+        stepVoltage.Enable = 'off';
+        imageCount.Enable = 'off';
+        settleTime.Enable = 'off';
+        folderField.Enable = 'off';
         statusLabel.Text = 'Acquiring...';
-        drawnow;
+        drawnow limitrate nocallbacks;
 
         try
             psi.acquisition.acquireFringeScan(piezo, camera, acquisition, ...
@@ -525,24 +621,41 @@ title(surfaceAxes, 'Surface v3 (nm)');
             statusLabel.Text = 'Acquisition complete';
         catch ME
             statusLabel.Text = 'Acquisition failed';
+            if strcmp(ME.identifier, 'psi:Acquisition:Camera')
+                cameraFault = true;
+                reportCameraError('Fringe scan', ME);
+                statusLabel.Text = 'Camera fault: Disconnect / Connect';
+            end
             uialert(fig, ME.message, 'Acquisition');
         end
 
-        acquireButton.Enable = 'on';
-        cameraButton.Enable = 'on';
-        exposureField.Enable = 'on';
-        gainField.Enable = 'on';
-        applyCameraButton.Enable = 'on';
+        isAcquiring = false;
+        disconnectButton.Enable = 'on';
+        reconstructButton.Enable = 'on';
+        browseButton.Enable = 'on';
+        startVoltage.Enable = 'on';
+        stepVoltage.Enable = 'on';
+        imageCount.Enable = 'on';
+        settleTime.Enable = 'on';
+        folderField.Enable = 'on';
+        cameraButton.Enable = onOff(~cameraFault);
+        exposureField.Enable = onOff(~cameraFault);
+        gainField.Enable = onOff(~cameraFault);
+        applyCameraButton.Enable = onOff(~cameraFault);
+        acquireButton.Enable = onOff(~cameraFault);
     end
 
     function updatePreview(frame, index, count, commanded, measured)
         showFrame(frame);
         statusLabel.Text = sprintf('%d/%d | %.3f V -> %.3f V', ...
             index, count, commanded, measured);
-        drawnow limitrate;
+        drawnow limitrate nocallbacks;
     end
 
     function reconstructScan(~,~)
+        if isAcquiring
+            return
+        end
         processing = cfg.processing;
         processing.phaseToleranceDeg = phaseTolerance.Value;
         processing.wavelengthNm = wavelength.Value;
@@ -581,7 +694,41 @@ title(surfaceAxes, 'Surface v3 (nm)');
         end
     end
 
+    function reportCameraError(context, ME)
+        stamp = datestr(now, 'yyyy-mm-dd HH:MM:SS');
+        cameraErrorField.Value = {sprintf('[%s] %s', stamp, context), ...
+            sprintf('%s: %s', ME.identifier, ME.message)};
+
+        try
+            logFolder = fullfile(root, 'data');
+            if ~isfolder(logFolder)
+                mkdir(logFolder);
+            end
+            fid = fopen(fullfile(logFolder, 'camera_errors.log'), 'a');
+            if fid >= 0
+                message = strrep(ME.message, newline, ' | ');
+                fprintf(fid, '[%s] %s | %s | %s\n', ...
+                    stamp, context, ME.identifier, message);
+                fclose(fid);
+            end
+        catch
+            % Diagnostic logging must not mask the camera failure.
+        end
+    end
+
+    function state = onOff(condition)
+        if condition
+            state = 'on';
+        else
+            state = 'off';
+        end
+    end
+
     function closeApp(~,~)
+        if isAcquiring
+            statusLabel.Text = 'Finish acquisition before closing';
+            return
+        end
         disconnectHardware();
         delete(fig);
     end
