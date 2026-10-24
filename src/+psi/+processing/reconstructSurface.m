@@ -11,21 +11,16 @@ end
 files = files(order);
 imageFiles = string(fullfile({files.folder}, {files.name}));
 
-[selectedIndices, fringeFrequency, phaseShifts, analysisRow] = ...
-    psi.processing.selectPhaseFrames(imageFiles, processing.analysisRow, ...
-    processing.phaseStepDeg, processing.phaseToleranceDeg);
+if numel(imageFiles) < 3
+    error('At least three interferograms are required for multi-frame PSI.');
+end
 
-[wrappedPhase, qualityMap, modulation] = ...
-    psi.processing.computePSI(imageFiles, selectedIndices);
+% V3: estimate the actual global phase of every frame and use all images.
+[phaseSteps, fringeFrequency, analysisRow] = ...
+    psi.processing.estimatePhaseSteps(imageFiles, processing.analysisRow);
+[wrappedPhase, qualityMap, modulation, background] = ...
+    psi.processing.computeMultiFramePSI(imageFiles, phaseSteps);
 
-% Legacy reconstruction retained for direct comparison.
-legacyUnwrappedPhase = psi.processing.unwrapPhase(wrappedPhase);
-legacyCorrectedPhase = psi.processing.removeCarrier(legacyUnwrappedPhase, ...
-    fringeFrequency, processing.referenceRow);
-legacySurfaceNm = psi.processing.phaseToSurface(legacyCorrectedPhase, ...
-    processing.wavelengthNm);
-
-% V2 reconstruction.
 filteredWrappedPhase = psi.processing.filterWrappedPhase( ...
     wrappedPhase, qualityMap, processing.filterRadius);
 unwrappedPhase = psi.processing.unwrapPhaseQuality( ...
@@ -36,16 +31,53 @@ unwrappedPhase = psi.processing.unwrapPhaseQuality( ...
 surfaceNm = psi.processing.phaseToSurface(correctedPhase, ...
     processing.wavelengthNm);
 
+% Keep V2 and legacy outputs when four ~90 degree frames can be found.
+v2Available = false;
+v2Error = "";
+selectedIndices = [];
+selectedPhaseShifts = [];
+v2SurfaceNm = [];
+legacySurfaceNm = [];
+
+try
+    [selectedIndices, ~, selectedPhaseShifts] = ...
+        psi.processing.selectPhaseFrames(imageFiles, analysisRow, ...
+        processing.phaseStepDeg, processing.phaseToleranceDeg);
+
+    [v2WrappedPhase, v2QualityMap] = ...
+        psi.processing.computePSI(imageFiles, selectedIndices);
+    v2FilteredPhase = psi.processing.filterWrappedPhase( ...
+        v2WrappedPhase, v2QualityMap, processing.filterRadius);
+    v2UnwrappedPhase = psi.processing.unwrapPhaseQuality( ...
+        v2FilteredPhase, v2QualityMap, processing.qualityThreshold);
+    [v2CorrectedPhase, ~, ~, ~] = psi.processing.removeTiltPlane( ...
+        v2UnwrappedPhase, v2QualityMap, processing.qualityThreshold);
+    v2SurfaceNm = psi.processing.phaseToSurface(v2CorrectedPhase, ...
+        processing.wavelengthNm);
+
+    legacyUnwrappedPhase = psi.processing.unwrapPhase(v2WrappedPhase);
+    legacyCorrectedPhase = psi.processing.removeCarrier( ...
+        legacyUnwrappedPhase, fringeFrequency, processing.referenceRow);
+    legacySurfaceNm = psi.processing.phaseToSurface( ...
+        legacyCorrectedPhase, processing.wavelengthNm);
+
+    v2Available = true;
+catch ME
+    v2Error = string(ME.message);
+end
+
 result.folder = string(folder);
-result.version = "v2";
-result.selectedImageNumbers = selectedIndices - 1;
-result.phaseShiftsDeg = phaseShifts;
+result.version = "v3";
+result.imageCount = numel(imageFiles);
+result.phaseStepsDeg = phaseSteps * 180/pi;
+result.phaseSpanDeg = (max(phaseSteps) - min(phaseSteps)) * 180/pi;
 result.fringeFrequency = fringeFrequency;
 result.analysisRow = analysisRow;
 
 result.wrappedPhase = wrappedPhase;
 result.qualityMap = qualityMap;
 result.modulation = modulation;
+result.background = background;
 result.filteredWrappedPhase = filteredWrappedPhase;
 result.unwrappedPhase = unwrappedPhase;
 result.tiltPlane = tiltPlane;
@@ -54,9 +86,12 @@ result.validMask = validMask;
 result.correctedPhase = correctedPhase;
 result.surfaceNm = surfaceNm;
 
-result.legacyUnwrappedPhase = legacyUnwrappedPhase;
-result.legacyCorrectedPhase = legacyCorrectedPhase;
+result.v2Available = v2Available;
+result.v2SelectedImageNumbers = selectedIndices - 1;
+result.v2PhaseShiftsDeg = selectedPhaseShifts;
+result.v2SurfaceNm = v2SurfaceNm;
 result.legacySurfaceNm = legacySurfaceNm;
+result.v2Error = v2Error;
 result.processing = processing;
 
 save(fullfile(folder, 'reconstruction.mat'), 'result');
