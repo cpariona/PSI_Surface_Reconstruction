@@ -124,69 +124,65 @@ These SDK codes identify failure categories, not necessarily the physical cause.
 For recurring failures, inspect the recorded operation/status and check the USB
 cable, port, driver versions and whether ThorCam is closed.
 
-## Phase noise filtering and tilt
+## Phase quality: explicit processing
 
-After multi-frame PSI, the **phase quality map** gives low weight to regions
-with weak modulation or saturated pixels. V3 filters wrapped phase as a complex
-phasor:
+The `Phase quality` tab displays four synchronized diagnostics:
 
-```text
-z = exp(1i*wrappedPhase)
-filtered = angle(conv2(quality.^2 .* z, kernel, 'same') ...
-                 ./ conv2(quality.^2, kernel, 'same'))
-```
+- **Phase quality / reference ROI**: PSI modulation-based confidence map.
+- **Mask**: 0 = excluded, 1 = valid, 2 = isolated spike rejected.
+- **Raw wrapped phase**: phase before the spatial noise filter.
+- **Filtered wrapped phase**: phase after circular noise filtering.
 
-The default `filterRadius = 2` gives a 5-by-5 pixel box kernel. Raising
-this radius smooths more noise but can erase fine surface details.
+The three controls are:
 
-After unwrapping, the tilt correction fits a quality-weighted 2-D phase plane
-`a*x + b*y + c` and subtracts it before conversion to nanometers.
-`qualityThreshold = 0.10` defines which pixels enter the plane fit and
-guide row alignment. Both parameters are set in
-`config/system_config.m` and are applied automatically during reconstruction.
+- `Noise radius (px)`: circular spatial-filter radius. A value of 2 is a
+  5-by-5 window. Larger radii suppress more detail along with noise.
+- `Quality threshold`: threshold for graph-based 2-D unwrapping and the
+  robust tilt fit; zero-quality pixels are always excluded.
+- `Spike threshold (rad)`: local-neighbor deviation needed to reject an
+  isolated spike in the unwrapped phase (default `pi`).
 
-**Important limitation:** the current plane fit uses all high-quality pixels,
-not a user-selected flat reference ROI. If the sample is curved or has a
-significant intrinsic slope, a whole-field plane fit can remove part of the
-true surface shape. Validate tilt removal against a known reference or adapt
-the reference region before quantitative measurements.
+Editing a value displays **Pending changes**; nothing is recalculated yet.
+Click **Apply processing** to rerun circular filtering, 2-D unwrapping,
+spike rejection, the reference-plane fit and height conversion, all using
+the cached multi-frame PSI phase. This does **not** reread the BMP files
+or reacquire camera frames. Successful processing displays **Applied**
+with a timestamp and updates `reconstruction.mat`. The quality/mask
+views report the valid-pixel percentage and rejected spike count.
 
-## Selecting a flat reference ROI
+### Editable reference ROI
 
-In the `Phase quality` tab, `Filter radius (px)` and `Quality threshold`
-control the next `Reconstruct surface` run. Filtering is applied to wrapped
-phase; the quality threshold controls which pixels may be unwrapped and used
-for reference leveling. The spike threshold remains in `system_config.m`.
+After reconstructing, press **Draw reference ROI**. Drag a rectangle on
+the **Phase quality / reference ROI** image. Move or resize the rectangle
+as needed, then **double-click inside** it to confirm and relevel the
+surface. The rectangle remains on the image. Moving it marks the tilt
+reference pending until you double-click again. Press **Full field**
+to remove the ROI and fit a plane to all reliable pixels instead.
 
-After `Reconstruct surface`, open `Phase quality`, press
-`Select flat reference ROI` and click **two opposite corners** on the quality
-image. The ROI must contain a physically flat region with at least 25 reliable
-pixels and 2-D coverage. The backend recalculates the plane from that ROI,
-updates the surface without rereading the scan, and saves the new
-`reconstruction.mat`. `Use full field` resets the reference selection.
+Confirming an ROI recalculates **only the 2-D robust tilt fit and surface**;
+it does not rerun the spatial filter or unwrap. The ROI must cover at
+least 25 reliable pixels with meaningful 2-D spatial extent. Selecting
+a different acquisition folder requires a new reconstruction before
+processing controls can operate on its data.
 
-The `Before / after tilt` tab compares 2-D height maps before and after
-the fitted reference plane is removed.
+The `Before / after tilt` tab compares the original unwrapped height
+and the levelled height. All rejected and low-quality pixels remain
+`NaN` (missing data), never interpolated or silently set to zero.
 
-The full-field default is only a convenient initial view. It can remove part
-of a sample's real slope/shape. Do not assume that a high-quality image region
-is geometrically flat. A new scan resets any old interactive ROI.
+**Scientific limitation:** the ROI must be a *physically planar
+reference*, not merely a high-contrast region. A full-field plane fit
+may remove real specimen geometry. True phase steps exceeding pi per
+pixel are ambiguous even with quality-guided unwrapping; verify surface
+height against a measured reference.
 
-The saved result includes `unwrapDiagnostics`, `unwrapMask`,
-`spikeMask`, `referenceMask`, `tiltPlane`, `tiltCoefficients`,
-`processing.tiltROI`, `surfaceNm`, and the preserved comparison surfaces.
-Holes in the surface indicate missing/low-confidence data, **not zero height**.
-
-The quality-guided unwrapping assumes neighboring valid pixels have true
-phase differences smaller than pi. A discontinuity beyond this sampling
-condition cannot be recovered unambiguously from PSI alone. The phase steps
-in V3 are still estimated from one selected fringe profile; their accuracy
-must be checked with measured data.
+The backend `psi.processing.reprocessSurface` owns parameter-driven
+phase filtering and saving; `psi.processing.relevelSurface` owns
+reference-only leveling. The GUI is limited to user input and display.
 
 ## Synthetic reconstruction check
 
-A focused check for 2-D unwrap continuity, masking of isolated spikes,
-and recovery of a known reference-plane slope is available at
+A focused check for 2-D unwrap continuity, isolated spike masking,
+reference-plane recovery, cached phase reprocessing and ROI leveling is at
 `tests/test_reconstruction_synthetic.m`. With MATLAB available:
 
 ```matlab
