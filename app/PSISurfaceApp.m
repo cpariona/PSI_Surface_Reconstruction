@@ -17,6 +17,7 @@ crosshairDragging = false;
 horizontalProfileHandle = [];
 verticalProfileHandle = [];
 isAcquiring = false;
+isConnecting = false;
 isPreviewCapturing = false;
 pendingDisconnect = false;
 pendingClose = false;
@@ -220,9 +221,11 @@ surfaceAxes = uiaxes(surfaceGrid);
 title(surfaceAxes, 'Surface v3 (nm)');
 
     function connectHardware(~,~)
-        if isAcquiring || isPreviewCapturing
+        if isAcquiring || isPreviewCapturing || isConnecting
             return
         end
+        isConnecting = true;
+        connectButton.Enable = 'off';
         try
             statusLabel.Text = 'Connecting...';
             drawnow;
@@ -248,7 +251,9 @@ title(surfaceAxes, 'Surface v3 (nm)');
             acquireButton.Enable = 'on';
             updateVoltageStatus();
             statusLabel.Text = 'Connected';
+            isConnecting = false;
         catch ME
+            isConnecting = false;
             reportCameraError('Connect', ME);
             disconnectHardware();
             statusLabel.Text = 'Connection failed';
@@ -257,6 +262,9 @@ title(surfaceAxes, 'Surface v3 (nm)');
     end
 
     function disconnectHardware(varargin)
+        if isConnecting
+            return
+        end
         if isAcquiring
             statusLabel.Text = 'Acquisition running: disconnect disabled';
             return
@@ -301,7 +309,11 @@ title(surfaceAxes, 'Surface v3 (nm)');
     end
 
     function toggleCameraPreview(~,~)
-        if isAcquiring || isPreviewCapturing || cameraFault || isempty(previewTimer)
+        if isAcquiring || cameraFault || isempty(previewTimer)
+            return
+        end
+        if isPreviewCapturing
+            stopCameraPreview();
             return
         end
         if strcmp(previewTimer.Running, 'off')
@@ -315,7 +327,7 @@ title(surfaceAxes, 'Surface v3 (nm)');
     end
 
     function applyCameraSettings(~,~)
-        if isAcquiring || cameraFault
+        if isAcquiring || isPreviewCapturing || cameraFault
             return
         end
         try
@@ -717,9 +729,10 @@ title(surfaceAxes, 'Surface v3 (nm)');
     end
 
     function reconstructScan(~,~)
-        if isAcquiring
+        if isAcquiring || isConnecting
             return
         end
+        stopCameraPreview();
         processing = cfg.processing;
         processing.phaseToleranceDeg = phaseTolerance.Value;
         processing.wavelengthNm = wavelength.Value;
@@ -770,9 +783,8 @@ title(surfaceAxes, 'Surface v3 (nm)');
             end
             fid = fopen(fullfile(logFolder, 'camera_errors.log'), 'a');
             if fid >= 0
-                message = strrep(ME.message, newline, ' | ');
-                fprintf(fid, '[%s] %s | %s | %s\n', ...
-                    stamp, context, ME.identifier, message);
+                details = getReport(ME, 'extended', 'hyperlinks', 'off');
+                fprintf(fid, '[%s] %s\n%s\n', stamp, context, details);
                 fclose(fid);
             end
         catch
@@ -789,6 +801,10 @@ title(surfaceAxes, 'Surface v3 (nm)');
     end
 
     function closeApp(~,~)
+        if isConnecting
+            statusLabel.Text = 'Connecting hardware: please retry closing';
+            return
+        end
         if isAcquiring
             statusLabel.Text = 'Finish acquisition before closing';
             return
