@@ -760,6 +760,13 @@ title(surfaceAxes, 'Surface v3 (nm)');
             return
         end
         stopCameraPreview();
+        if ~isempty(lastResult) && ...
+                ~strcmp(char(lastResult.folder), folderField.Value)
+            tiltROI = [];
+        end
+        roiSelecting = false;
+        roiFirst = [];
+
         processing = cfg.processing;
         processing.phaseToleranceDeg = phaseTolerance.Value;
         processing.wavelengthNm = wavelength.Value;
