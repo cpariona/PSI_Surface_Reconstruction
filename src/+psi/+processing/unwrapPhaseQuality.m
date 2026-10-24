@@ -6,7 +6,7 @@ function [unwrappedPhase, validMask, diagnostics] = unwrapPhaseQuality(wrappedPh
 [rows, cols] = size(wrappedPhase);
 n = numel(wrappedPhase);
 valid = isfinite(wrappedPhase) & isfinite(qualityMap) & ...
-    qualityMap >= threshold;
+    qualityMap > 0 & qualityMap >= threshold;
 
 unwrappedPhase = nan(rows, cols);
 validMask = false(rows, cols);
