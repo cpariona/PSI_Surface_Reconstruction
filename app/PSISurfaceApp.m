@@ -1044,7 +1044,13 @@ ylabel(afterTiltAxes, 'y (pixel)');
         colormap(phaseAxes, 'gray');
 
         cla(surfaceAxes);
-        surf(surfaceAxes, result.surfaceNm, 'EdgeColor', 'none');
+        [heightRows, heightCols] = size(result.surfaceNm);
+        maxPreview = cfg.processing.previewMaxPixels;
+        stride = max(1, ceil(max(heightRows, heightCols)/maxPreview));
+        previewRows = unique([1:stride:heightRows, heightRows]);
+        previewCols = unique([1:stride:heightCols, heightCols]);
+        surf(surfaceAxes, previewCols, previewRows, ...
+            result.surfaceNm(previewRows,previewCols), 'EdgeColor', 'none');
         axis(surfaceAxes, 'tight');
         view(surfaceAxes, 3);
         xlabel(surfaceAxes, 'x (pixel)');
