@@ -73,7 +73,12 @@ timings.compute = toc(totalClock);
 result.processingTimes = timings;
 result.processingStages = ran;
 clock = tic;
-save(fullfile(char(result.folder), 'reconstruction.mat'), 'result');
+outputFile = fullfile(char(result.folder), 'reconstruction.mat');
+if isfield(result.processing, 'fastSave') && result.processing.fastSave
+    save(outputFile, 'result', '-nocompression');
+else
+    save(outputFile, 'result');
+end
 result.processingTimes.save = toc(clock);
 result.processingTimes.total = toc(totalClock);
 end
