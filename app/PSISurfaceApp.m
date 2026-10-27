@@ -934,6 +934,7 @@ ylabel(afterTiltAxes, 'y (pixel)');
     end
 
     function startBackgroundProcessing(mode, processing)
+        stopCameraPreview();
         isProcessing = true;
         processingJob = mode;
         processingStartedAt = tic;
@@ -947,6 +948,9 @@ ylabel(afterTiltAxes, 'y (pixel)');
         applyCameraButton.Enable = 'off';
         browseButton.Enable = 'off';
         folderField.Enable = 'off';
+        if ~isempty(roiRectangle) && isvalid(roiRectangle)
+            roiRectangle.InteractionsAllowed = 'none';
+        end
         processingStateLabel.Text = 'Processing...';
         statusLabel.Text = 'Processing in background...';
         drawnow limitrate nocallbacks;
@@ -983,6 +987,13 @@ ylabel(afterTiltAxes, 'y (pixel)');
             browseButton.Enable = 'on';
             folderField.Enable = 'on';
             restoreHardwareButtons();
+            if ~isempty(roiRectangle) && isvalid(roiRectangle)
+                roiRectangle.InteractionsAllowed = 'all';
+            end
+            if ~isempty(lastResult)
+                selectROIButton.Enable = 'on';
+                fullFieldButton.Enable = 'on';
+            end
             statusLabel.Text = 'Could not start background processing';
             updateProcessingState();
             uialert(fig, ME.message, 'Background processing');
@@ -1035,6 +1046,9 @@ ylabel(afterTiltAxes, 'y (pixel)');
         browseButton.Enable = 'on';
         folderField.Enable = 'on';
         restoreHardwareButtons();
+        if ~isempty(roiRectangle) && isvalid(roiRectangle)
+            roiRectangle.InteractionsAllowed = 'all';
+        end
         if ~isempty(lastResult) && ...
                 strcmp(char(lastResult.folder), folderField.Value)
             selectROIButton.Enable = 'on';
