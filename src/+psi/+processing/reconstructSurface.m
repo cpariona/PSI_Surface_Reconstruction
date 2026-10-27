@@ -32,7 +32,7 @@ result.qualityMap = qualityMap;
 result.modulation = modulation;
 result.background = background;
 
-% Legacy and four-frame input are cached only when selection is possible.
+% Four-frame comparison is opt-in to avoid a second expensive reconstruction.
 result.v2Available = false;
 result.v2Error = "";
 result.v2SelectedImageNumbers = [];
@@ -43,6 +43,7 @@ result.v2UnwrappedPhase = [];
 result.v2SurfaceNm = [];
 result.legacySurfaceNm = [];
 
+if isfield(processing, 'computeV2Comparison') && processing.computeV2Comparison
 try
     [selectedIndices, ~, phaseShifts] = ...
         psi.processing.selectPhaseFrames(imageFiles, analysisRow, ...
@@ -62,6 +63,9 @@ try
         legacyCorrected, processing.wavelengthNm);
 catch ME
     result.v2Error = string(ME.message);
+end
+else
+    result.v2Error = "Comparison skipped (computeV2Comparison=false).";
 end
 
 % Same backend for initial reconstruction and later Apply processing.
