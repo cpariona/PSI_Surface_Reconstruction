@@ -69,14 +69,11 @@ end
 
 result.processing = processing;
 result.processingAppliedAt = datetime('now');
-clock = tic;
-save(fullfile(char(result.folder), 'reconstruction.mat'), 'result');
-timings.save = toc(clock);
-timings.total = toc(totalClock);
+timings.compute = toc(totalClock);
 result.processingTimes = timings;
 result.processingStages = ran;
-
-% Store diagnostic timings too, without saving the full result a second time.
-processingTimes = timings; %#ok<NASGU>
-save(fullfile(char(result.folder), 'processing_times.mat'), 'processingTimes');
+clock = tic;
+save(fullfile(char(result.folder), 'reconstruction.mat'), 'result');
+result.processingTimes.save = toc(clock);
+result.processingTimes.total = toc(totalClock);
 end
