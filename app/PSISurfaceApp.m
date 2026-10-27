@@ -909,7 +909,7 @@ ylabel(afterTiltAxes, 'y (pixel)');
             processingStateLabel.Text = ['Applied ' ...
                 datestr(lastResult.processingAppliedAt, 'HH:MM:SS')];
         end
-        applyProcessingButton.Enable = 'on';
+        applyProcessingButton.Enable = onOff(changed);
     end
 
     function applyProcessing(~,~)
@@ -946,15 +946,28 @@ ylabel(afterTiltAxes, 'y (pixel)');
                 processingFuture = parfeval(backgroundPool, ...
                     @psi.processing.reconstructSurface, 1, ...
                     folderField.Value, processing);
-            else
+            elseif strcmp(mode, 'apply')
                 processingFuture = parfeval(backgroundPool, ...
                     @psi.processing.reprocessSurface, 1, ...
+                    lastResult, processing);
+            else
+                processingFuture = parfeval(backgroundPool, ...
+                    @psi.processing.relevelSurface, 1, ...
                     lastResult, processing);
             end
             processingTimer = timer('ExecutionMode', 'fixedSpacing', ...
                 'Period', 0.4, 'TimerFcn', @pollBackgroundProcessing);
             start(processingTimer);
         catch ME
+            if ~isempty(processingFuture)
+                cancel(processingFuture);
+                processingFuture = [];
+            end
+            if ~isempty(processingTimer)
+                stop(processingTimer);
+                delete(processingTimer);
+                processingTimer = [];
+            end
             isProcessing = false;
             reconstructButton.Enable = 'on';
             browseButton.Enable = 'on';
@@ -988,6 +1001,12 @@ ylabel(afterTiltAxes, 'y (pixel)');
             if strcmp(processingJob, 'reconstruct')
                 tiltROI = result.processing.tiltROI;
                 removeROI();
+            elseif strcmp(processingJob, 'relevel')
+                tiltROI = result.processing.tiltROI;
+                roiPending = false;
+                if isempty(tiltROI)
+                    removeROI();
+                end
             end
             showQualityAndSurface();
             statusLabel.Text = sprintf( ...
@@ -1182,22 +1201,7 @@ ylabel(afterTiltAxes, 'y (pixel)');
         if isempty(selectedROI) || any(selectedROI(3:4) <= 0)
             return
         end
-
-        isProcessing = true;
-        try
-            newResult = psi.processing.relevelSurface(lastResult, selectedROI);
-            lastResult = newResult;
-            tiltROI = selectedROI;
-            roiPending = false;
-            showQualityAndSurface();
-            statusLabel.Text = 'Tilt applied from selected reference ROI';
-        catch ME
-            roiPending = true;
-            roiLabel.Text = 'ROI rejected: resize and double-click again';
-            uialert(fig, ME.message, 'Reference ROI');
-        end
-        isProcessing = false;
-        updateProcessingState();
+        startBackgroundProcessing('relevel', selectedROI);
     end
 
     function resetTiltROI(~,~)
@@ -1205,19 +1209,7 @@ ylabel(afterTiltAxes, 'y (pixel)');
                 ~strcmp(char(lastResult.folder), folderField.Value)
             return
         end
-        isProcessing = true;
-        try
-            newResult = psi.processing.relevelSurface(lastResult, []);
-            lastResult = newResult;
-            tiltROI = [];
-            removeROI();
-            showQualityAndSurface();
-            statusLabel.Text = 'Tilt applied using full field';
-        catch ME
-            uialert(fig, ME.message, 'Tilt correction');
-        end
-        isProcessing = false;
-        updateProcessingState();
+        startBackgroundProcessing('relevel', []);
     end
 
     function reportCameraError(context, ME)
