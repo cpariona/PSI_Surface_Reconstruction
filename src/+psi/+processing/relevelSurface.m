@@ -1,6 +1,8 @@
 function result = relevelSurface(result, tiltROI)
 %RELEVELSURFACE Refit tilt from the selected ROI without rerunning PSI.
 
+started = tic;
+
 [corrected, plane, coefficients, validMask, referenceMask] = ...
     psi.processing.removeTiltPlane(result.unwrappedPhase, ...
     result.qualityMap, result.processing.qualityThreshold, tiltROI);
@@ -13,6 +15,7 @@ result.referenceMask = referenceMask;
 result.surfaceNm = psi.processing.phaseToSurface( ...
     corrected, result.processing.wavelengthNm);
 result.processing.tiltROI = tiltROI;
+result.processingAppliedAt = datetime('now');
 
 if result.v2Available && ~isempty(result.v2UnwrappedPhase)
     try
@@ -29,10 +32,18 @@ if result.v2Available && ~isempty(result.v2UnwrappedPhase)
     end
 end
 
+result.processingTimes = struct('compute', toc(started), ...
+    'filter', 0, 'unwrap', 0, 'spikes', 0, 'tilt', toc(started), ...
+    'save', 0);
+result.processingStages = struct('filter', false, 'unwrap', false, ...
+    'spikes', false, 'tilt', true);
 outputFile = fullfile(char(result.folder), 'reconstruction.mat');
+saveClock = tic;
 if isfield(result.processing, 'fastSave') && result.processing.fastSave
     save(outputFile, 'result', '-nocompression');
 else
     save(outputFile, 'result');
 end
+result.processingTimes.save = toc(saveClock);
+result.processingTimes.total = toc(started);
 end
