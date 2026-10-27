@@ -1,90 +1,67 @@
 function [unwrappedPhase, validMask, diagnostics] = unwrapPhaseQuality(wrappedPhase, qualityMap, threshold)
-%UNWRAPPHASEQUALITY Quality-guided 2-D unwrapping on a reliable pixel graph.
-% A maximum-reliability spanning forest prevents propagation through invalid
-% pixels. Only the largest connected component has a defined phase origin.
+%UNWRAPPHASEQUALITY Quality-guided 2-D unwrap using native graph algorithms.
+% Native minspantree replaces millions of interpreted union-find operations.
+% Disconnected low-quality regions remain NaN; no phase is interpolated.
 
 [rows, cols] = size(wrappedPhase);
-n = numel(wrappedPhase);
 valid = isfinite(wrappedPhase) & isfinite(qualityMap) & ...
     qualityMap > 0 & qualityMap >= threshold;
+validIndices = find(valid(:));
+numValid = numel(validIndices);
 
-unwrappedPhase = nan(rows, cols);
-validMask = false(rows, cols);
-diagnostics.reliablePixels = nnz(valid);
-diagnostics.connectedPixels = 0;
-diagnostics.componentCount = 0;
-
-if ~any(valid)
+if numValid == 0
     error('No reliable pixels for 2-D phase unwrapping.');
 end
 
-indices = reshape(int32(1:n), rows, cols);
-from = [reshape(indices(:,1:end-1), [], 1); ...
-        reshape(indices(1:end-1,:), [], 1)];
-to = [reshape(indices(:,2:end), [], 1); ...
-      reshape(indices(2:end,:), [], 1)];
+% Compact node numbering avoids graph nodes for excluded pixels.
+indexMap = zeros(rows*cols, 1, 'uint32');
+indexMap(validIndices) = uint32(1:numValid);
+pixels = reshape(uint32(1:rows*cols), rows, cols);
 
-keep = valid(from) & valid(to);
-from = from(keep);
-to = to(keep);
+src = [reshape(pixels(:,1:end-1), [], 1); ...
+       reshape(pixels(1:end-1,:), [], 1)];
+dst = [reshape(pixels(:,2:end), [], 1); ...
+       reshape(pixels(2:end,:), [], 1)];
+keep = valid(src) & valid(dst);
+src = src(keep);
+dst = dst(keep);
 
-raw = wrappedPhase(to) - wrappedPhase(from);
-step = mod(raw + pi, 2*pi) - pi;
-turnStep = int32(round((step - raw) / (2*pi)));
-q = min(qualityMap(from), qualityMap(to));
-reliability = q.^2 .* (1 - 0.4 * abs(step)/pi);
-[~, order] = sort(reliability, 'descend');
+rawStep = wrappedPhase(dst) - wrappedPhase(src);
+wrappedStep = mod(rawStep + pi, 2*pi) - pi;
+quality = min(qualityMap(src), qualityMap(dst));
+reliability = quality.^2 .* (1 - 0.4*abs(wrappedStep)/pi);
 
-parent = int32(1:n)';
-componentSize = ones(n, 1, 'int32');
-turnToParent = zeros(n, 1, 'int32');
+G = graph(double(indexMap(src)), double(indexMap(dst)), ...
+    -reliability, numValid);
+componentId = conncomp(G);
+componentSizes = accumarray(componentId(:), 1);
+[~, largestComponent] = max(componentSizes);
+root = find(componentId == largestComponent, 1, 'first');
 
-for j = 1:numel(order)
-    k = order(j);
-    a = from(k);
-    b = to(k);
+% Sparse Kruskal is compiled; negated edge weights preserve maximum reliability.
+[T, predecessor] = minspantree(G, 'Method', 'sparse', ...
+    'Type', 'tree', 'Root', root);
+order = dfsearch(T, root);
+count = numel(order);
 
-    [rootA, turnA] = findRoot(a);
-    [rootB, turnB] = findRoot(b);
-    if rootA == rootB
-        continue
-    end
-
-    % The integer phase turn at b minus that at a equals turnStep(k).
-    if componentSize(rootA) >= componentSize(rootB)
-        parent(rootB) = rootA;
-        turnToParent(rootB) = turnStep(k) + turnA - turnB;
-        componentSize(rootA) = componentSize(rootA) + componentSize(rootB);
-    else
-        parent(rootA) = rootB;
-        turnToParent(rootA) = turnB - turnA - turnStep(k);
-        componentSize(rootB) = componentSize(rootB) + componentSize(rootA);
-    end
+% Propagate integer 2*pi turns along the directed spanning tree.
+child = order(2:end);
+parent = predecessor(child);
+wrappedVector = wrappedPhase(validIndices);
+delta = wrappedVector(child) - wrappedVector(parent);
+principalDelta = mod(delta + pi, 2*pi) - pi;
+edgeTurns = int32(round((principalDelta - delta) / (2*pi)));
+turns = zeros(numValid, 1, 'int32');
+for k = 1:numel(child)
+    turns(child(k)) = turns(parent(k)) + edgeTurns(k);
 end
 
-roots = find(valid(:) & parent == indices(:));
-diagnostics.componentCount = numel(roots);
-[~, largest] = max(componentSize(roots));
-mainRoot = roots(largest);
-
-unwrapped = nan(n,1);
-for j = find(valid(:))'
-    [root, turns] = findRoot(int32(j));
-    if root == mainRoot
-        unwrapped(j) = wrappedPhase(j) + 2*pi*double(turns);
-    end
-end
-
-unwrappedPhase(:) = unwrapped;
+unwrappedPhase = nan(rows, cols);
+unwrappedPhase(validIndices(order)) = ...
+    wrappedVector(order) + 2*pi*double(turns(order));
 validMask = isfinite(unwrappedPhase);
-diagnostics.connectedPixels = nnz(validMask);
 
-    function [root, turns] = findRoot(index)
-        root = index;
-        turns = int32(0);
-        while parent(root) ~= root
-            turns = turns + turnToParent(root);
-            root = parent(root);
-        end
-    end
+diagnostics.reliablePixels = numValid;
+diagnostics.connectedPixels = count;
+diagnostics.componentCount = numel(componentSizes);
 end
