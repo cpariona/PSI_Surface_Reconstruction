@@ -226,8 +226,8 @@ axis(phaseAxes, 'image');
 colormap(phaseAxes, 'gray');
 
 qualityTab = uitab(views, 'Title', 'Phase quality');
-qualityGrid = uigridlayout(qualityTab, [6 4]);
-qualityGrid.RowHeight = {36, 32, 32, '1x', '1x', 35};
+qualityGrid = uigridlayout(qualityTab, [7 4]);
+qualityGrid.RowHeight = {36, 32, 32, '1x', '1x', 35, 28};
 qualityGrid.ColumnWidth = {'1x', 92, '1x', 92};
 
 selectROIButton = uibutton(qualityGrid, 'Text', 'Draw reference ROI', ...
@@ -307,6 +307,12 @@ roiLabel = uilabel(qualityGrid, ...
     'HorizontalAlignment', 'center');
 roiLabel.Layout.Row = 6;
 roiLabel.Layout.Column = [1 4];
+
+processingTimingLabel = uilabel(qualityGrid, ...
+    'Text', 'Timings: no processing completed', ...
+    'HorizontalAlignment', 'center');
+processingTimingLabel.Layout.Row = 7;
+processingTimingLabel.Layout.Column = [1 4];
 
 surfaceTab = uitab(views, 'Title', 'Surface');
 surfaceGrid = uigridlayout(surfaceTab, [1 1]);
@@ -1047,6 +1053,13 @@ ylabel(afterTiltAxes, 'y (pixel)');
 
     function showQualityAndSurface()
         result = lastResult;
+
+        if isfield(result, 'processingTimes')
+            t = result.processingTimes;
+            processingTimingLabel.Text = sprintf( ...
+                'Filter %.2fs | Unwrap %.2fs | Spikes %.2fs | Tilt %.2fs | Save %.2fs', ...
+                t.filter, t.unwrap, t.spikes, t.tilt, t.save);
+        end
 
         if isempty(qualityImageHandle) || ~isgraphics(qualityImageHandle)
             qualityImageHandle = imagesc(qualityAxes, result.qualityMap, [0 1]);
