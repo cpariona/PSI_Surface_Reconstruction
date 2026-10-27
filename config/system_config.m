@@ -23,5 +23,6 @@ cfg.processing.qualityThreshold = 0.10;
 cfg.processing.spikeThresholdRad = pi;
 cfg.processing.tiltROI = []; % [] = full field; prefer a flat reference ROI.
 cfg.processing.computeV2Comparison = false; % Opt-in: costly four-frame comparison.
+cfg.processing.fastSave = true; % Larger MAT files; faster writes.
 cfg.processing.previewMaxPixels = 350; % Max image dimension for 3-D preview.
 end
