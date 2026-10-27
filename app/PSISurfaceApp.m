@@ -30,6 +30,10 @@ roiClickedListener = [];
 roiMovedListener = [];
 roiPending = false;
 isProcessing = false;
+processingFuture = [];
+processingTimer = [];
+processingJob = '';
+processingStartedAt = [];
 qualityImageHandle = [];
 rawPhaseImageHandle = [];
 filteredPhaseImageHandle = [];
@@ -855,40 +859,7 @@ ylabel(afterTiltAxes, 'y (pixel)');
             processing.tiltROI = tiltROI;
         end
 
-        isProcessing = true;
-        reconstructButton.Enable = 'off';
-        applyProcessingButton.Enable = 'off';
-        selectROIButton.Enable = 'off';
-        fullFieldButton.Enable = 'off';
-        statusLabel.Text = 'Reconstructing PSI and processing phase...';
-        processingStateLabel.Text = 'Processing...';
-        drawnow limitrate nocallbacks;
-
-        try
-            result = psi.processing.reconstructSurface( ...
-                folderField.Value, processing);
-            lastResult = result;
-            tiltROI = processing.tiltROI;
-            removeROI();
-            showQualityAndSurface();
-            processingStateLabel.Text = ['Applied ' ...
-                datestr(result.processingAppliedAt, 'HH:MM:SS')];
-            selectROIButton.Enable = 'on';
-            fullFieldButton.Enable = 'on';
-            statusLabel.Text = sprintf( ...
-                'Reconstruction complete | %d frames | valid %.1f%% | spikes %d', ...
-                result.imageCount, ...
-                100*nnz(result.validMask)/numel(result.validMask), ...
-                nnz(result.spikeMask));
-        catch ME
-            statusLabel.Text = 'Reconstruction failed';
-            uialert(fig, ME.message, 'Reconstruction');
-            updateProcessingState();
-        end
-
-        isProcessing = false;
-        reconstructButton.Enable = 'on';
-        updateProcessingState();
+        startBackgroundProcessing('reconstruct', processing);
     end
 
     function onProcessingSettingChanged(~,~)
@@ -946,38 +917,97 @@ ylabel(afterTiltAxes, 'y (pixel)');
                 ~strcmp(char(lastResult.folder), folderField.Value)
             return
         end
+        stopCameraPreview();
+
+        processing = lastResult.processing;
+        processing.filterRadius = round(filterRadiusField.Value);
+        processing.qualityThreshold = qualityThresholdField.Value;
+        processing.spikeThresholdRad = spikeThresholdField.Value;
+        processing.tiltROI = tiltROI;
+        startBackgroundProcessing('apply', processing);
+    end
+
+    function startBackgroundProcessing(mode, processing)
         isProcessing = true;
-        applyProcessingButton.Enable = 'off';
+        processingJob = mode;
+        processingStartedAt = tic;
         reconstructButton.Enable = 'off';
+        applyProcessingButton.Enable = 'off';
         selectROIButton.Enable = 'off';
         fullFieldButton.Enable = 'off';
+        browseButton.Enable = 'off';
+        folderField.Enable = 'off';
         processingStateLabel.Text = 'Processing...';
-        statusLabel.Text = 'Filtering, 2-D unwrapping, removing spikes and tilt...';
+        statusLabel.Text = 'Processing in background...';
         drawnow limitrate nocallbacks;
 
         try
-            processing = lastResult.processing;
-            processing.filterRadius = round(filterRadiusField.Value);
-            processing.qualityThreshold = qualityThresholdField.Value;
-            processing.spikeThresholdRad = spikeThresholdField.Value;
-            processing.tiltROI = tiltROI;
+            if strcmp(mode, 'reconstruct')
+                processingFuture = parfeval(backgroundPool, ...
+                    @psi.processing.reconstructSurface, 1, ...
+                    folderField.Value, processing);
+            else
+                processingFuture = parfeval(backgroundPool, ...
+                    @psi.processing.reprocessSurface, 1, ...
+                    lastResult, processing);
+            end
+            processingTimer = timer('ExecutionMode', 'fixedSpacing', ...
+                'Period', 0.4, 'TimerFcn', @pollBackgroundProcessing);
+            start(processingTimer);
+        catch ME
+            isProcessing = false;
+            reconstructButton.Enable = 'on';
+            browseButton.Enable = 'on';
+            folderField.Enable = 'on';
+            statusLabel.Text = 'Could not start background processing';
+            updateProcessingState();
+            uialert(fig, ME.message, 'Background processing');
+        end
+    end
 
-            newResult = psi.processing.reprocessSurface(lastResult, processing);
-            lastResult = newResult;
+    function pollBackgroundProcessing(~,~)
+        if isempty(processingFuture)
+            return
+        end
+        state = char(processingFuture.State);
+        if ~strcmp(state, 'finished') && ~strcmp(state, 'failed')
+            statusLabel.Text = sprintf('Processing... %.1f s elapsed', ...
+                toc(processingStartedAt));
+            return
+        end
+
+        if ~isempty(processingTimer)
+            stop(processingTimer);
+            delete(processingTimer);
+            processingTimer = [];
+        end
+
+        try
+            result = fetchOutputs(processingFuture);
+            lastResult = result;
+            if strcmp(processingJob, 'reconstruct')
+                tiltROI = result.processing.tiltROI;
+                removeROI();
+            end
             showQualityAndSurface();
             statusLabel.Text = sprintf( ...
-                'Processing applied | valid %.1f%% | spikes %d', ...
-                100*nnz(newResult.validMask)/numel(newResult.validMask), ...
-                nnz(newResult.spikeMask));
+                'Processing applied | %.1f s compute | %.1f s save | valid %.1f%%', ...
+                result.processingTimes.compute, result.processingTimes.save, ...
+                100*nnz(result.validMask)/numel(result.validMask));
         catch ME
-            statusLabel.Text = 'Processing failed (previous result kept)';
+            statusLabel.Text = 'Phase processing failed (previous result kept)';
             uialert(fig, ME.message, 'Phase processing');
         end
 
+        processingFuture = [];
         isProcessing = false;
         reconstructButton.Enable = 'on';
-        selectROIButton.Enable = 'on';
-        fullFieldButton.Enable = 'on';
+        browseButton.Enable = 'on';
+        folderField.Enable = 'on';
+        if ~isempty(lastResult)
+            selectROIButton.Enable = 'on';
+            fullFieldButton.Enable = 'on';
+        end
         updateProcessingState();
     end
 
