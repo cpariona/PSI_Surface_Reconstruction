@@ -59,12 +59,39 @@ if runTilt
     timings.tilt = toc(clock);
 end
 
-% Optional comparisons are explicitly requested, never recomputed on Apply.
-if isfield(result, 'v2Available') && result.v2Available && ...
-        (~sameFilter || ~sameQuality || ~sameSpike || ~sameROI)
-    result.v2SurfaceNm = [];
+% The costly four-frame comparison runs only when explicitly enabled.
+compareV2 = isfield(processing, 'computeV2Comparison') && ...
+    processing.computeV2Comparison;
+if compareV2 && isfield(result, 'v2Available') && result.v2Available
+    if runFilter || runUnwrap || runSpikes || runTilt || ...
+            isempty(result.v2SurfaceNm)
+        try
+            v2Filtered = psi.processing.filterWrappedPhase( ...
+                result.v2WrappedPhase, result.v2QualityMap, ...
+                processing.filterRadius);
+            v2Unwrapped = psi.processing.unwrapPhaseQuality( ...
+                v2Filtered, result.v2QualityMap, ...
+                processing.qualityThreshold);
+            [v2Unwrapped, ~] = psi.processing.rejectPhaseSpikes( ...
+                v2Unwrapped, processing.spikeThresholdRad);
+            [v2Corrected, ~] = psi.processing.removeTiltPlane( ...
+                v2Unwrapped, result.v2QualityMap, ...
+                processing.qualityThreshold, processing.tiltROI);
+            result.v2UnwrappedPhase = v2Unwrapped;
+            result.v2SurfaceNm = psi.processing.phaseToSurface( ...
+                v2Corrected, processing.wavelengthNm);
+            result.v2Error = "";
+        catch ME
+            result.v2UnwrappedPhase = [];
+            result.v2SurfaceNm = [];
+            result.v2Error = string(ME.message);
+        end
+    end
+elseif isfield(result, 'v2Available') && result.v2Available && ...
+        (runFilter || runUnwrap || runSpikes || runTilt)
     result.v2UnwrappedPhase = [];
-    result.v2Error = "V2 surface not updated (comparison disabled in fast processing).";
+    result.v2SurfaceNm = [];
+    result.v2Error = "V2 comparison stale (enable computeV2Comparison to recompute).";
 end
 
 result.processing = processing;
