@@ -71,6 +71,9 @@ The V2 four-frame and legacy results are also stored when four approximately 90-
 - Quality threshold: 0.10
 - Isolated-spike threshold: pi radians
 - Tilt reference ROI: [] (whole field until a reference is selected)
+- V2 comparison: disabled by default (`computeV2Comparison = false`).
+- Fast uncompressed MAT saving: enabled (`fastSave = true`; larger files).
+- Surface 3-D preview maximum dimension: 350 samples.
 - V2 phase-step target: 90 degrees
 - V2 phase-step tolerance: 5 degrees
 
@@ -144,12 +147,31 @@ The three controls are:
   isolated spike in the unwrapped phase (default `pi`).
 
 Editing a value displays **Pending changes**; nothing is recalculated yet.
-Click **Apply processing** to rerun circular filtering, 2-D unwrapping,
-spike rejection, the reference-plane fit and height conversion, all using
-the cached multi-frame PSI phase. This does **not** reread the BMP files
-or reacquire camera frames. Successful processing displays **Applied**
-with a timestamp and updates `reconstruction.mat`. The quality/mask
-views report the valid-pixel percentage and rejected spike count.
+Click **Apply processing** to update the affected stages using the cached
+multi-frame PSI phase. A spike-threshold change skips filtering and
+unwrapping; a quality-threshold change skips filtering but reruns unwrap.
+The camera BMPs are not reread. The quality/mask views report valid pixels
+and rejected spikes; a line below the views reports measured seconds for
+filtering, unwrapping, spike detection, tilt fitting and MAT saving.
+
+`Reconstruct surface`, `Apply processing`, and tilt-only ROI leveling
+run in MATLAB `backgroundPool`, so the app remains responsive while
+numeric work runs. MATLAB includes one background worker even without
+Parallel Computing Toolbox. Hardware controls are disabled during
+background processing. The default 3-D preview is downsampled for
+rendering only; stored surfaces retain native resolution.
+
+Full-field unwrapping uses native compiled `graph`/`minspantree`/
+`dfsearch` instead of millions of interpreted union-find operations.
+The core quality weights and largest-connected-component rule are
+retained, though tie resolution in the spanning tree may differ.
+
+For performance, the expensive V2 comparison is **opt-in**:
+set `cfg.processing.computeV2Comparison = true` before reconstructing.
+The fast default skips v2 and legacy comparisons; historical outputs
+remain in any older saved reconstruction files. Fast MAT saving uses
+`-nocompression`, which shortens compression overhead at the expense
+of larger `reconstruction.mat` files.
 
 ### Editable reference ROI
 
@@ -183,7 +205,7 @@ reference-only leveling. The GUI is limited to user input and display.
 ## Synthetic reconstruction check
 
 A focused check for 2-D unwrap continuity, isolated spike masking,
-reference-plane recovery, cached phase reprocessing and ROI leveling is at
+reference-plane recovery, cached-stage reuse and ROI leveling is at
 `tests/test_reconstruction_synthetic.m`. With MATLAB available:
 
 ```matlab
