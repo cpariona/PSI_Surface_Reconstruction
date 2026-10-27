@@ -29,5 +29,10 @@ if result.v2Available && ~isempty(result.v2UnwrappedPhase)
     end
 end
 
-save(fullfile(char(result.folder), 'reconstruction.mat'), 'result');
+outputFile = fullfile(char(result.folder), 'reconstruction.mat');
+if isfield(result.processing, 'fastSave') && result.processing.fastSave
+    save(outputFile, 'result', '-nocompression');
+else
+    save(outputFile, 'result');
+end
 end
