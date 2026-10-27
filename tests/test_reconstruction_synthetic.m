@@ -60,7 +60,25 @@ settings.filterRadius = 3;
 reprocessed = psi.processing.reprocessSurface(processed, settings);
 assert(reprocessed.processing.filterRadius == 3);
 assert(~isequaln(reprocessed.filteredWrappedPhase, processed.filteredWrappedPhase));
+assert(reprocessed.processingStages.unwrap);
+assert(reprocessed.processingStages.filter);
 
-relevelled = psi.processing.relevelSurface(reprocessed, []);
+% Spike-only change must reuse filtered and unwrapped arrays.
+settings.spikeThresholdRad = 1.8;
+spikeOnly = psi.processing.reprocessSurface(reprocessed, settings);
+assert(~spikeOnly.processingStages.filter);
+assert(~spikeOnly.processingStages.unwrap);
+assert(spikeOnly.processingStages.spikes);
+assert(isequaln(spikeOnly.unwrappedPhaseRaw, reprocessed.unwrappedPhaseRaw));
+
+% ROI-only changes must not rerun expensive graph unwrapping.
+settings.tiltROI = [7 7 20 20];
+roiOnly = psi.processing.reprocessSurface(spikeOnly, settings);
+assert(~roiOnly.processingStages.filter);
+assert(~roiOnly.processingStages.unwrap);
+assert(~roiOnly.processingStages.spikes);
+assert(roiOnly.processingStages.tilt);
+
+relevelled = psi.processing.relevelSurface(roiOnly, []);
 assert(isempty(relevelled.processing.tiltROI));
 end
