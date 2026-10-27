@@ -21,5 +21,7 @@ cfg.processing.referenceRow = [];
 cfg.processing.filterRadius = 2;
 cfg.processing.qualityThreshold = 0.10;
 cfg.processing.spikeThresholdRad = pi;
-cfg.processing.tiltROI = []; % [] = all reliable pixels; prefer a flat reference ROI.
+cfg.processing.tiltROI = []; % [] = full field; prefer a flat reference ROI.
+cfg.processing.computeV2Comparison = false; % Opt-in: costly four-frame comparison.
+cfg.processing.previewMaxPixels = 350; % Max image dimension for 3-D preview.
 end
