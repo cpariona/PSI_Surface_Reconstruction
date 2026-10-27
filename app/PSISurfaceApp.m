@@ -328,7 +328,7 @@ xlabel(afterTiltAxes, 'x (pixel)');
 ylabel(afterTiltAxes, 'y (pixel)');
 
     function connectHardware(~,~)
-        if isAcquiring || isPreviewCapturing || isConnecting
+        if isProcessing || isAcquiring || isPreviewCapturing || isConnecting
             return
         end
         isConnecting = true;
@@ -935,6 +935,10 @@ ylabel(afterTiltAxes, 'y (pixel)');
         applyProcessingButton.Enable = 'off';
         selectROIButton.Enable = 'off';
         fullFieldButton.Enable = 'off';
+        connectButton.Enable = 'off';
+        disconnectButton.Enable = 'off';
+        cameraButton.Enable = 'off';
+        applyCameraButton.Enable = 'off';
         browseButton.Enable = 'off';
         folderField.Enable = 'off';
         processingStateLabel.Text = 'Processing...';
@@ -972,6 +976,7 @@ ylabel(afterTiltAxes, 'y (pixel)');
             reconstructButton.Enable = 'on';
             browseButton.Enable = 'on';
             folderField.Enable = 'on';
+            restoreHardwareButtons();
             statusLabel.Text = 'Could not start background processing';
             updateProcessingState();
             uialert(fig, ME.message, 'Background processing');
@@ -1023,11 +1028,21 @@ ylabel(afterTiltAxes, 'y (pixel)');
         reconstructButton.Enable = 'on';
         browseButton.Enable = 'on';
         folderField.Enable = 'on';
-        if ~isempty(lastResult)
+        restoreHardwareButtons();
+        if ~isempty(lastResult) && ...
+                strcmp(char(lastResult.folder), folderField.Value)
             selectROIButton.Enable = 'on';
             fullFieldButton.Enable = 'on';
         end
         updateProcessingState();
+    end
+
+    function restoreHardwareButtons()
+        connectButton.Enable = onOff(isempty(camera));
+        disconnectButton.Enable = onOff(~isempty(camera));
+        cameraButton.Enable = onOff(~isempty(camera) && ~cameraFault);
+        applyCameraButton.Enable = onOff(~isempty(camera) && ~cameraFault);
+        acquireButton.Enable = onOff(~isempty(camera) && ~cameraFault);
     end
 
     function showQualityAndSurface()
