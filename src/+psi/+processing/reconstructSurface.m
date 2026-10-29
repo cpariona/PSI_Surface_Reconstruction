@@ -20,10 +20,20 @@ end
 [wrappedPhase, qualityMap, modulation, background] = ...
     psi.processing.computeMultiFramePSI(imageFiles, phaseSteps);
 
+polarityOverride = [];
+if isfield(processing, 'heightPolarity')
+    polarityOverride = processing.heightPolarity;
+end
+[heightPolarity, fringeDirection, fringeMotion] = ...
+    psi.processing.inferHeightPolarity(phaseSteps, polarityOverride);
+
 result.folder = string(folder);
 result.version = "v3";
 result.imageCount = numel(imageFiles);
 result.phaseStepsDeg = phaseSteps * 180/pi;
+result.heightPolarity = heightPolarity;
+result.fringeDirection = fringeDirection;
+result.fringeMotion = fringeMotion;
 result.phaseSpanDeg = (max(phaseSteps) - min(phaseSteps)) * 180/pi;
 result.fringeFrequency = fringeFrequency;
 result.analysisRow = analysisRow;
