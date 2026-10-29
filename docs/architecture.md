@@ -48,7 +48,7 @@ The DCC1545M uses the validated `uc480DotNet.dll` path and `RGBA8Packed` acquisi
 7. Unwrap phase on a maximum-reliability 2-D pixel spanning tree with native `graph`/`minspantree` and depth-first phase propagation. Only the largest connected reliable component is retained.
 8. Reject isolated phase spikes by local-neighbor agreement; rejected pixels remain NaN.
 9. Fit a robust weighted 2-D plane using only reliable pixels inside the selected flat reference ROI; subtract it across the valid surface.
-10. Convert corrected phase to surface height with `h = lambda*phi/(4*pi)` (unreliable pixels remain NaN).
+10. Convert corrected phase to surface height with `h = p*lambda*phi/(4*pi)` (unreliable pixels remain NaN). For v3, `p` is calibrated from fringe motion.
 
 ### Comparison outputs
 
@@ -111,3 +111,23 @@ only 3-D geometry; full-resolution matrices are kept in the MAT result.
 Results include per-stage timing metadata, and uncompressed MAT writing
 is configurable via `cfg.processing.fastSave`. These changes require
 measurement and validation on the target MATLAB installation.
+
+### Phase polarity and reproducibility
+
+`estimatePhaseSteps` extracts the signed temporal phase of a positive
+spatial FFT carrier. `inferHeightPolarity` uses the median signed
+increment and sign consistency to distinguish leftward and rightward
+fringe movement. The mount-specific calibration is left -> +1,
+right -> -1; an optional `processing.heightPolarity` (+1/-1)
+overrides automatic sign selection. Ambiguous motion fails explicitly
+unless manually calibrated.
+
+`reconstructSurface` records `heightPolarity`,
+`fringeDirection`, and `fringeMotion`; `reprocessSurface`
+uses the polarity when converting tilt-corrected phase to v3 height.
+`relevelSurface` reuses that polarity. In neither case is the expensive
+unwrap recomputed solely to correct height sign. The raw wrapped and
+unwrapped phases retain their original optical phase convention.
+Optional four-frame comparisons preserve their distinct historical
+phase convention. Camera crosshair visualization is solid white only;
+hardware APIs and GUI diagnostic layout are unchanged.
