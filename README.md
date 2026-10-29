@@ -6,7 +6,7 @@ The current version integrates:
 
 - Thorlabs TPZ001 piezo controller through Kinesis .NET.
 - Thorlabs DCC1545M camera through the DCx `uc480DotNet.dll` interface.
-- Live camera preview with exposure, gain, histogram, saturation statistics, movable crosshair, and horizontal/vertical intensity profiles.
+- Live camera preview with exposure, gain, histogram, saturation statistics, a solid white crosshair, and horizontal/vertical intensity profiles.
 - Voltage scan and interferogram acquisition with pre-scan voltage validation.
 - Controller-reported voltage limit plus an optional actuator-specific voltage limit.
 - Multi-frame PSI v3 using all acquired interferograms.
@@ -61,7 +61,7 @@ V3 is the maintained reconstruction path:
 7. Unwrap phase on a quality-weighted 2-D pixel graph; retain only its largest connected component.
 8. Mask isolated phase spikes; unreliable regions remain NaN in the height surface.
 9. Robustly fit and remove a 2-D tilt plane using a flat reference ROI.
-10. Convert reflected optical phase to height with `h = lambda*phi/(4*pi)`.
+10. Convert reflected optical phase to height with `h = p*lambda*phi/(4*pi)`, where `p` is the calibrated height polarity (+1/-1).
 
 The V2 four-frame and legacy results are also stored when four approximately 90-degree-separated frames can be identified.
 
@@ -74,6 +74,7 @@ The V2 four-frame and legacy results are also stored when four approximately 90-
 - V2 comparison: disabled by default (`computeV2Comparison = false`).
 - Fast uncompressed MAT saving: enabled (`fastSave = true`; larger files).
 - Surface 3-D preview maximum dimension: 350 samples.
+- Height polarity: automatic, using signed temporal movement of the fringe carrier; manually overridable.
 - V2 phase-step target: 90 degrees
 - V2 phase-step tolerance: 5 degrees
 
@@ -216,3 +217,50 @@ test_reconstruction_synthetic
 The check does not use physical hardware and does not establish optical
 measurement accuracy. Experimental comparison with a flat reference is
 required before interpreting surface heights quantitatively.
+
+## Calibrated fringe direction and height polarity (PSI v3)
+
+The multi-frame fit remains `I_k = A + C*cos(delta_k) + S*sin(delta_k)`
+with wrapped phase `phi = atan2(-S,C)`. Its temporal phase steps
+`delta_k` are measured from the positive-frequency spatial FFT carrier.
+When that phase increases with acquisition index, fringes move **left** in
+the camera image. When it decreases, they move **right**. By the observed
+calibration of this optical setup, the v3 height polarity is:
+
+- Leftward fringes: `p = +1` (keep reconstructed height sign).
+- Rightward fringes: `p = -1` (invert reconstructed height sign).
+
+The correction multiplies **the final v3 height**, after phase unwrapping
+and planar tilt correction. It does not alter the wrapped-phase model or
+repeat costly unwrapping. `relevelSurface` retains the same polarity
+when a different reference ROI is selected. The before/after tilt view
+also uses the same calibrated height sign.
+
+Default: `cfg.processing.heightPolarity = []` (automatic). If the
+fringe motion is inconsistent or too small to detect reliably, the
+reconstruction stops with an explanation instead of guessing. The
+operator can set `cfg.processing.heightPolarity = +1` or `-1` to use
+a calibrated manual sign. This is a **mount-specific calibration**:
+changing camera orientation or optical geometry can invalidate the
+left/right-to-height mapping.
+
+The result MAT file records `result.fringeDirection`,
+`result.heightPolarity` and `result.fringeMotion` without adding new
+GUI elements. When present, the optional PSI v2/legacy comparisons
+retain their original phase conventions; the automatic sign calibration
+is applied to the maintained **v3** surface.
+
+### PSI v2 versus PSI v3
+
+PSI v2 selects four approximately quadrature-spaced images, forms
+`a = I1-I3`, `b = I4-I2` and computes `phi2 = atan2(a,b)`.
+This assumes the selected images have the requisite quarter-cycle
+separations; its phase convention is not identical to v3's.
+
+PSI v3 uses all images. After estimating each measured step `delta_k`,
+it solves the three-parameter per-pixel least-squares model
+`I_k = A + C*cos(delta_k) + S*sin(delta_k)`. It then computes
+`phi3 = atan2(-S,C)`. Both methods perform phase filtering, unwrapping,
+spike rejection and tilt removal before phase-to-height conversion.
+PSI v3 generally uses more measurements to reduce random phase noise
+and does not force all phase steps to be exactly 90 degrees.
