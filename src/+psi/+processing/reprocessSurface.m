@@ -18,15 +18,42 @@ sameROI = isfield(old, 'tiltROI') && isequaln(old.tiltROI, processing.tiltROI);
 sameWavelength = isfield(old, 'wavelengthNm') && ...
     isequal(old.wavelengthNm, processing.wavelengthNm);
 
+% Determine height sign without altering the wrapped-phase or unwrap results.
+polarityOverride = [];
+if isfield(processing, 'heightPolarity')
+    polarityOverride = processing.heightPolarity;
+end
+if isfield(result, 'phaseStepsDeg') && ~isempty(result.phaseStepsDeg)
+    [polarity, fringeDirection, fringeMotion] = ...
+        psi.processing.inferHeightPolarity( ...
+        result.phaseStepsDeg * pi/180, polarityOverride);
+    result.fringeDirection = fringeDirection;
+    result.fringeMotion = fringeMotion;
+elseif ~isempty(polarityOverride)
+    if ~isnumeric(polarityOverride) || ~isscalar(polarityOverride) || ...
+            ~ismember(polarityOverride, [-1, 1])
+        error('Height polarity override must be +1 or -1.');
+    end
+    polarity = polarityOverride;
+elseif isfield(result, 'heightPolarity')
+    polarity = result.heightPolarity;
+else
+    % Backwards compatibility for synthetic or previously cached PSI data.
+    polarity = 1;
+end
+samePolarity = isfield(result, 'heightPolarity') && ...
+    isequal(result.heightPolarity, polarity);
+
 runFilter = ~sameFilter || ~isfield(result, 'filteredWrappedPhase');
 runUnwrap = runFilter || ~sameQuality || ~isfield(result, 'unwrappedPhaseRaw');
 runSpikes = runUnwrap || ~sameSpike || ~isfield(result, 'spikeMask');
-runTilt = runSpikes || ~sameROI || ~sameWavelength || ...
-    ~isfield(result, 'correctedPhase');
+runTilt = runSpikes || ~sameROI || ~isfield(result, 'correctedPhase');
+runHeight = runTilt || ~sameWavelength || ~samePolarity || ...
+    ~isfield(result, 'surfaceNm');
 
 timings = struct('filter', 0, 'unwrap', 0, 'spikes', 0, 'tilt', 0, 'save', 0);
 ran = struct('filter', runFilter, 'unwrap', runUnwrap, ...
-    'spikes', runSpikes, 'tilt', runTilt);
+    'spikes', runSpikes, 'tilt', runTilt, 'height', runHeight);
 
 if runFilter
     clock = tic;
@@ -54,10 +81,14 @@ if runTilt
         result.validMask, result.referenceMask] = ...
         psi.processing.removeTiltPlane(result.unwrappedPhase, ...
         result.qualityMap, processing.qualityThreshold, processing.tiltROI);
-    result.surfaceNm = psi.processing.phaseToSurface( ...
-        result.correctedPhase, processing.wavelengthNm);
     timings.tilt = toc(clock);
 end
+if runHeight
+    % Reflective PSI: flip height polarity only after phase unwrapping/tilt.
+    result.surfaceNm = polarity * psi.processing.phaseToSurface( ...
+        result.correctedPhase, processing.wavelengthNm);
+end
+result.heightPolarity = polarity;
 
 % The costly four-frame comparison runs only when explicitly enabled.
 compareV2 = isfield(processing, 'computeV2Comparison') && ...
