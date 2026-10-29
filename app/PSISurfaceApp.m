@@ -612,9 +612,11 @@ ylabel(afterTiltAxes, 'y (pixel)');
 
         if crosshairCheck.Value
             if isempty(crosshairX) || ~isgraphics(crosshairX)
-                crosshairX = xline(imageAxes, crosshairPos(1), '--', ...
+                crosshairX = xline(imageAxes, crosshairPos(1), '-', ...
+                    'Color', 'w', 'LineWidth', 1.3, ...
                     'HitTest', 'off', 'PickableParts', 'none');
-                crosshairY = yline(imageAxes, crosshairPos(2), '--', ...
+                crosshairY = yline(imageAxes, crosshairPos(2), '-', ...
+                    'Color', 'w', 'LineWidth', 1.3, ...
                     'HitTest', 'off', 'PickableParts', 'none');
             else
                 crosshairX.Value = crosshairPos(1);
@@ -1150,7 +1152,11 @@ ylabel(afterTiltAxes, 'y (pixel)');
         title(surfaceAxes, 'Surface v3 (nm) - unreliable pixels omitted');
         colorbar(surfaceAxes);
 
-        beforeHeight = psi.processing.phaseToSurface( ...
+        polarity = 1;
+        if isfield(result, 'heightPolarity')
+            polarity = result.heightPolarity;
+        end
+        beforeHeight = polarity * psi.processing.phaseToSurface( ...
             result.unwrappedPhase, result.processing.wavelengthNm);
         imagesc(beforeTiltAxes, beforeHeight);
         axis(beforeTiltAxes, 'image');
