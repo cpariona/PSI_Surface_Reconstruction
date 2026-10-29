@@ -41,6 +41,7 @@ mkdir(tempFolder);
 cached.folder = string(tempFolder);
 cached.wrappedPhase = wrapped;
 cached.qualityMap = quality;
+cached.phaseStepsDeg = -linspace(0, 135, 14); % Right-moving carrier.
 cached.v2Available = false;
 cached.v2WrappedPhase = [];
 cached.v2QualityMap = [];
@@ -52,6 +53,8 @@ settings.tiltROI = roi;
 settings.wavelengthNm = 660;
 
 processed = psi.processing.reprocessSurface(cached, settings);
+assert(processed.heightPolarity == -1);
+assert(processed.fringeDirection == "right");
 assert(isfile(fullfile(tempFolder, 'reconstruction.mat')));
 assert(isequal(size(processed.surfaceNm), size(wrapped)));
 assert(~any(isfinite(processed.surfaceNm(20:25,30:40)), 'all'));
@@ -81,4 +84,39 @@ assert(roiOnly.processingStages.tilt);
 
 relevelled = psi.processing.relevelSurface(roiOnly, []);
 assert(isempty(relevelled.processing.tiltROI));
+
+% A manual sign override changes height without rerunning filtering or unwrap.
+manualSettings = relevelled.processing;
+manualSettings.heightPolarity = +1;
+manualResult = psi.processing.reprocessSurface(relevelled, manualSettings);
+assert(manualResult.heightPolarity == 1);
+assert(manualResult.processingStages.height);
+assert(~manualResult.processingStages.filter);
+assert(~manualResult.processingStages.unwrap);
+assert(~manualResult.processingStages.tilt);
+assert(isequaln(manualResult.correctedPhase, relevelled.correctedPhase));
+validHeight = isfinite(manualResult.surfaceNm);
+assert(max(abs(manualResult.surfaceNm(validHeight) + ...
+    relevelled.surfaceNm(validHeight))) < 1e-8);
+
+% The Fourier coefficient sign gives drift direction for a positive carrier.
+x = 0:255;
+steps = (0:11)'*(pi/9);
+for motionSign = [-1 1]
+    measured = zeros(size(steps));
+    for k = 1:numel(steps)
+        profile = cos(2*pi*8*x/256 + motionSign*steps(k));
+        spectrum = fft(profile - mean(profile));
+        measured(k) = angle(spectrum(9));
+    end
+    measured = unwrap(measured);
+    [detectedPolarity, direction] = ...
+        psi.processing.inferHeightPolarity(measured, []);
+    assert(detectedPolarity == motionSign);
+    if motionSign == -1
+        assert(direction == "right");
+    else
+        assert(direction == "left");
+    end
+end
 end
