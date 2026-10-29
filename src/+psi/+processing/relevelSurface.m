@@ -12,7 +12,11 @@ result.tiltPlane = plane;
 result.tiltCoefficients = coefficients;
 result.validMask = validMask;
 result.referenceMask = referenceMask;
-result.surfaceNm = psi.processing.phaseToSurface( ...
+polarity = 1;
+if isfield(result, 'heightPolarity')
+    polarity = result.heightPolarity;
+end
+result.surfaceNm = polarity * psi.processing.phaseToSurface( ...
     corrected, result.processing.wavelengthNm);
 result.processing.tiltROI = tiltROI;
 result.processingAppliedAt = datetime('now');
